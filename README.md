@@ -10,9 +10,10 @@ A normal send is never affected. The UI is German.
 - Image providers: **NanoGPT** and **OpenRouter** (their dedicated image APIs). Nothing else.
 - The image prompt always includes **message 0** of the chat (character looks, setting) plus the latest N messages,
   and the description from the **character card**.
-- By default the chat model writes the image prompt as a short tag list (at most 20 tags, the most important
-  first); if that fails the extension falls back to a direct prompt. A character from a published work is named
-  with its work (`hermione granger, harry potter`), which is what anime models recognise.
+- By default the chat model writes the image prompt: a short description of what is to be drawn (at most 45
+  words, the most important first); if that fails the extension falls back to a direct prompt. A character from a
+  published work is named with its work (`Hermione Granger from Harry Potter`), which is what anime models
+  recognise.
 - A **Galerie** tab lists every generated image.
 
 ## Install
@@ -53,7 +54,7 @@ Disable or remove the original if you no longer want its palette button and sett
   (WAI Illustrious SDXL, fast and cheap) and `anima/text-to-image` (Anima, slower, keeps more detail).
   `flux-schnell` does not know most characters.
 - SDXL-based models (all the anime ones) read only about the first 75 tokens of a prompt. That is why the prompt
-  is a short tag list and why "Stil-Zusatz" is put in front of it.
+  is kept this short, starts with how many people are shown, and why "Stil-Zusatz" is put in front of it.
 - A reasoning chat model needs room to think: for the image prompt the reply length of a chat-completion preset
   is raised to 2000 tokens for that one request.
 
