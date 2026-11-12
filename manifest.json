@@ -1,14 +1,14 @@
 {
-  "display_name": "Quick Image Gen",
+  "display_name": "BF Quick Image Gen",
   "loading_order": 100,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "style.css",
-  "author": "platberlitz",
-  "version": "3.5.0",
+  "author": "BF-GitH (fork of Quick Image Gen by platberlitz)",
+  "version": "1.0.0",
   "minimum_client_version": "1.14.0",
-  "homePage": "https://github.com/platberlitz/sillytavern-image-gen",
+  "homePage": "https://github.com/BF-GitH/bf-quick-image-gen",
   "auto_update": true,
   "manifest_version": 3
 }

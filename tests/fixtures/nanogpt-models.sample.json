@@ -1,0 +1,837 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "flux-schnell",
+      "object": "model",
+      "created": 1704067200,
+      "owned_by": "flux",
+      "name": "Flux Schnell",
+      "description": "10 free generations per day. Fast and high-quality image generation - the cheape",
+      "architecture": {
+        "modality": "text->image",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1024x1024": 0.0085,
+          "1024x768": 0.0085,
+          "1024x576": 0.0085,
+          "768x1024": 0.0085,
+          "576x1024": 0.0085
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": false,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": 3000,
+        "prompt_length": {
+          "status": "known",
+          "unit": "utf16_code_units",
+          "trim_whitespace": true
+        },
+        "resolutions": [
+          "1024x1024",
+          "1024x768",
+          "1024x576",
+          "768x1024",
+          "576x1024"
+        ],
+        "max_images": 20,
+        "max_output_images": 20
+      },
+      "icon_url": "/icons/Flux.svg",
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/flux-schnell/endpoints"
+    },
+    {
+      "id": "z-image-turbo",
+      "object": "model",
+      "created": 1764201600,
+      "owned_by": "alibaba",
+      "name": "Z Image Turbo",
+      "description": "Z Image Turbo is a fast, high-quality image generation model optimized for speed",
+      "architecture": {
+        "modality": "text->image",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "256*256": 0.0119,
+          "512*512": 0.0119,
+          "768*768": 0.0119,
+          "1024*1024": 0.0119,
+          "1280*720": 0.0119,
+          "720*1280": 0.0119,
+          "1536*1024": 0.0119,
+          "1024*1536": 0.0119,
+          "1536*1536": 0.0119
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": false,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": 1200,
+        "prompt_length": {
+          "status": "known",
+          "unit": "unicode_code_points",
+          "trim_whitespace": true
+        },
+        "resolutions": [
+          "256*256",
+          "512*512",
+          "768*768",
+          "1024*1024",
+          "1280*720",
+          "720*1280",
+          "1536*1024",
+          "1024*1536",
+          "1536*1536"
+        ],
+        "max_images": 4,
+        "max_output_images": 4
+      },
+      "icon_url": "/icons/Alibaba.svg",
+      "tags": [
+        "text-to-image"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/z-image-turbo/endpoints"
+    },
+    {
+      "id": "qwen-image-3",
+      "object": "model",
+      "created": 1784678400,
+      "owned_by": "qwen",
+      "name": "Qwen Image 3",
+      "description": "Alibaba's Qwen Image 3 for text-to-image generation and precise edits with up to",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1k": 0.03,
+          "2k": 0.03,
+          "auto": 0.03
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": 800,
+        "prompt_length": {
+          "status": "known",
+          "unit": "unicode_code_points",
+          "trim_whitespace": true
+        },
+        "resolutions": [
+          "1k",
+          "2k"
+        ],
+        "aspect_ratio": [
+          "auto",
+          "1:1",
+          "1:2",
+          "2:1",
+          "1:3",
+          "3:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "9:21",
+          "21:9"
+        ],
+        "max_images": 4,
+        "max_output_images": 4,
+        "max_input_images": 3,
+        "input_image_constraints": {
+          "max_items": 3,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          },
+          "provider": {
+            "min_width": 384,
+            "min_height": 384,
+            "max_width": 2048,
+            "max_height": 2048,
+            "max_bytes": 10485760,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "provider-docs",
+            "note": "Qwen Image 3 Edit accepts 1-3 JPEG, PNG, or WebP reference images."
+          }
+        }
+      },
+      "icon_url": "/icons/Qwen.svg",
+      "tags": [
+        "text-to-image",
+        "image-to-image",
+        "qwen"
+      ],
+      "category": "Featured",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/qwen-image-3/endpoints"
+    },
+    {
+      "id": "nano-banana-2",
+      "object": "model",
+      "created": 1772064000,
+      "owned_by": "gemini",
+      "name": "Nano Banana 2",
+      "description": "Google Nano Banana 2 (Gemini 3.1 Flash Image) for fast text-to-image and image e",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1k": 0.08,
+          "2k": 0.12,
+          "4k": 0.16
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "1k",
+          "2k",
+          "4k"
+        ],
+        "aspect_ratio": [
+          "auto",
+          "1:1",
+          "3:2",
+          "2:3",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "21:9"
+        ],
+        "max_images": 4,
+        "max_output_images": 4,
+        "max_input_images": 14,
+        "input_image_constraints": {
+          "max_items": 14,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/Gemini.svg",
+      "tags": [
+        "text-to-image",
+        "image-edit",
+        "4k"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/nano-banana-2/endpoints"
+    },
+    {
+      "id": "grok-imagine-image",
+      "object": "model",
+      "created": 1769644800,
+      "owned_by": "xai",
+      "name": "Grok Imagine Image",
+      "description": "Generate highly aesthetic images with SpaceXAI's Grok Imagine Image model. Suppo",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "2:1": 0.02,
+          "20:9": 0.02,
+          "19.5:9": 0.02,
+          "16:9": 0.02,
+          "4:3": 0.02,
+          "3:2": 0.02,
+          "1:1": 0.02,
+          "2:3": 0.02,
+          "3:4": 0.02,
+          "9:16": 0.02,
+          "9:19.5": 0.02,
+          "9:20": 0.02,
+          "1:2": 0.02
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "2:1",
+          "20:9",
+          "19.5:9",
+          "16:9",
+          "4:3",
+          "3:2",
+          "1:1",
+          "2:3",
+          "3:4",
+          "9:16",
+          "9:19.5",
+          "9:20",
+          "1:2"
+        ],
+        "max_images": 4,
+        "max_output_images": 4,
+        "max_input_images": 3,
+        "input_image_constraints": {
+          "max_items": 3,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/SpaceXAI.svg",
+      "tags": [
+        "text-to-image",
+        "image-edit",
+        "xai"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/grok-imagine-image/endpoints"
+    },
+    {
+      "id": "seedream-v4.5",
+      "object": "model",
+      "created": 1764720000,
+      "owned_by": "doubao",
+      "name": "Seedream 4.5",
+      "description": "Seedream 4.5 produces high-quality images with sizes up to 4096x4096. Minimum to",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1920x1920": 0.04,
+          "2048x2048": 0.04,
+          "2496x1664": 0.04,
+          "1664x2496": 0.04,
+          "3072x2048": 0.04,
+          "2048x3072": 0.04,
+          "3072x2304": 0.04,
+          "2304x3072": 0.04,
+          "4096x2304": 0.04,
+          "2304x4096": 0.04,
+          "4096x4096": 0.04,
+          "auto": 0.04
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": true
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "1920x1920",
+          "2048x2048",
+          "2496x1664",
+          "1664x2496",
+          "3072x2048",
+          "2048x3072",
+          "3072x2304",
+          "2304x3072",
+          "4096x2304",
+          "2304x4096",
+          "4096x4096"
+        ],
+        "max_images": 4,
+        "max_output_images": 4,
+        "max_input_images": 10,
+        "input_image_constraints": {
+          "max_items": 10,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          },
+          "provider": {
+            "max_bytes": 10485760,
+            "source": "provider-docs",
+            "note": "Provider model metadata states max input image size: 10MB."
+          }
+        }
+      },
+      "icon_url": "/icons/Doubao.svg",
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/seedream-v4.5/endpoints"
+    },
+    {
+      "id": "marigold-v2",
+      "object": "model",
+      "created": 1790985600,
+      "owned_by": "prs-eth",
+      "name": "Marigold V2 Depth",
+      "description": "Estimate monocular depth from one image and return a colorized Spectral depth vi",
+      "architecture": {
+        "modality": "image->image",
+        "input_modalities": [
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "square_hd": 0.03,
+          "square": 0.03,
+          "portrait_4_3": 0.03,
+          "portrait_16_9": 0.03,
+          "landscape_4_3": 0.03,
+          "landscape_16_9": 0.03,
+          "auto": 0.03
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "not_applicable",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "auto",
+          "square_hd",
+          "square",
+          "portrait_4_3",
+          "portrait_16_9",
+          "landscape_4_3",
+          "landscape_16_9"
+        ],
+        "max_images": 1,
+        "max_output_images": 1,
+        "max_input_images": 1,
+        "input_image_constraints": {
+          "max_items": 1,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          },
+          "provider": {
+            "max_width": 2048,
+            "max_height": 2048,
+            "source": "provider-docs",
+            "note": "FAL documents a 2048px maximum per input edge for Marigold V2."
+          }
+        }
+      },
+      "tags": [
+        "depth-estimation",
+        "image-to-image",
+        "utility"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/marigold-v2/endpoints"
+    },
+    {
+      "id": "birefnet/v2",
+      "object": "model",
+      "created": 1788825600,
+      "owned_by": "zhengpeng7",
+      "name": "BiRefNet V2",
+      "description": "Remove backgrounds with dedicated foreground segmentation, preserving transparen",
+      "architecture": {
+        "modality": "image->image",
+        "input_modalities": [
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "auto": 0.01
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "not_applicable",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "auto"
+        ],
+        "max_images": 1,
+        "max_output_images": 1
+      },
+      "tags": [
+        "background-removal",
+        "segmentation",
+        "image-to-image"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/birefnet/v2/endpoints"
+    },
+    {
+      "id": "bytedance/seedream-v5.5/edit",
+      "object": "model",
+      "created": 1793923200,
+      "owned_by": "doubao",
+      "name": "Seedream 5.5",
+      "description": "Seedream 5.5 by ByteDance generates images from text and edits images with up to",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1k": 0.028,
+          "1.5k": 0.028,
+          "2k": 0.043,
+          "auto": 0.028
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "1k",
+          "1.5k",
+          "2k"
+        ],
+        "aspect_ratio": [
+          "auto",
+          "1:1",
+          "1:2",
+          "2:1",
+          "1:3",
+          "3:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "9:21",
+          "21:9"
+        ],
+        "max_images": 4,
+        "max_output_images": 4,
+        "max_input_images": 10,
+        "input_image_constraints": {
+          "max_items": 10,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/Doubao.svg",
+      "tags": [
+        "text-to-image",
+        "image-edit"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/bytedance/seedream-v5.5/edit/endpoints"
+    },
+    {
+      "id": "topaz-transparent-upscale",
+      "object": "model",
+      "created": 1793577600,
+      "owned_by": "topaz",
+      "name": "Topaz Transparent Upscale",
+      "description": "Topaz Transparent Upscale enlarges one PNG, JPEG, or WebP image and preserves tr",
+      "architecture": {
+        "modality": "image->image",
+        "input_modalities": [
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {},
+        "starting_at": 0.08,
+        "billing": "started_megapixel_blocks",
+        "megapixel_pixels": 1000000,
+        "area_basis": "output",
+        "tariffs": [
+          {
+            "algorithm": "Transparent",
+            "scale": {
+              "usd_per_started_block": 0.08,
+              "megapixels_per_block": 24
+            }
+          }
+        ],
+        "quote_endpoint": "/api/estimate-image-cost",
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "not_applicable",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "topaz_model": [
+          "Transparent"
+        ],
+        "output_format": [
+          "png"
+        ],
+        "fixed_upscale_factor": 4,
+        "max_output_pixels": 100000000,
+        "quote_source_dimensions": [
+          "topaz_input_width",
+          "topaz_input_height"
+        ],
+        "resolutions": [
+          "scale"
+        ],
+        "max_images": 1,
+        "max_output_images": 1,
+        "max_input_images": 1,
+        "input_image_constraints": {
+          "max_items": 1,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          },
+          "provider": {
+            "min_width": 64,
+            "min_height": 64,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_total_pixels": 40000000,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "One still image, up to 40 MP input and 100 MP output."
+          }
+        },
+        "fixed_image_count": 1
+      },
+      "tags": [
+        "image-to-image",
+        "upscale",
+        "topaz"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/topaz-transparent-upscale/endpoints"
+    }
+  ]
+}

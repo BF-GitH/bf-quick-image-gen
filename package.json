@@ -1,32 +1,22 @@
 {
-  "name": "sillytavern-quick-image-gen",
-  "version": "3.5.0",
+  "name": "bf-quick-image-gen",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "Slim image generation extension for TauriTavern / SillyTavern: wand-menu send + image, NanoGPT and OpenRouter only.",
+  "license": "MIT",
   "scripts": {
-    "check": "node scripts/check-js-syntax.js",
-    "lint": "eslint index.js lib tests server-plugin",
+    "lint": "eslint .",
     "test": "node --test --test-reporter=spec",
-    "verify": "npm run check && npm run lint && npm test"
+    "verify": "npm run lint && npm test",
+    "mock": "node dev/mock-server.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.0",
     "eslint": "^10.7.0",
-    "fake-indexeddb": "^6.2.5",
-    "globals": "^17.7.0",
-    "jsdom": "29.1.1"
+    "globals": "^17.7.0"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
-  },
-  "files": [
-    "index.js",
-    "style.css",
-    "manifest.json",
-    "README.md",
-    "docs/comfyui-workflow-variables.md",
-    "lib/",
-    "server-plugin/",
-    "scripts/",
-    "tests/"
-  ]
+  }
 }
