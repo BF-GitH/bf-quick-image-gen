@@ -3,9 +3,9 @@
 import { LOG_PREFIX } from '../shared/constants.js';
 import { extensionForMime } from '../providers/http.js';
 import { notify, confirmDialog, timestampName, adoptToasts, releaseToasts } from '../host/st.js';
-import { deleteImage, saveToDevice } from '../host/images.js';
-import { detachImageFromChat, saveChat } from '../host/chat.js';
-import { listRecords, removeGalleryRecord, onGalleryChange } from './store.js';
+import { saveToDevice } from '../host/images.js';
+import { listRecords, onGalleryChange } from './store.js';
+import { deleteGeneratedImage } from './actions.js';
 
 const TEXT = Object.freeze({
     empty: 'Noch keine Bilder.',
@@ -41,7 +41,8 @@ function iconButton(id, icon, label) {
 
 let closeActiveViewer = null;
 
-export function openImageViewer(record) {
+// onDelete lets a caller whose picture is not a gallery record (an uploaded reference) delete it its own way.
+export function openImageViewer(record, { confirmText, onDelete } = {}) {
     closeActiveViewer?.();
     // A native modal dialog, because TauriTavern's Android back handler only closes 'dialog[open]' elements.
     const overlay = el('dialog', { id: 'bfqig-viewer', className: 'bfqig-viewer' });
@@ -97,14 +98,10 @@ export function openImageViewer(record) {
         }
     });
     remove.addEventListener('click', async () => {
-        if (!(await confirmDialog(TEXT.confirmDelete))) return;
+        if (!(await confirmDialog(confirmText ?? TEXT.confirmDelete))) return;
         try {
-            // A false result usually means the file is already gone; the record must go either way.
-            const deleted = await deleteImage(record.url);
-            if (!deleted) console.warn(LOG_PREFIX, 'Image file could not be deleted', record.url);
-            removeGalleryRecord(record.url);
-            // Otherwise the chat message keeps a media entry pointing at the deleted file.
-            if (detachImageFromChat(record.url) > 0) await saveChat();
+            if (onDelete) await onDelete();
+            else await deleteGeneratedImage(record.url);
             closeViewer();
         } catch (error) {
             notify.error(TEXT.deleteFailed + (error?.message || String(error)));

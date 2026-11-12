@@ -7,8 +7,11 @@ import { notify, onHostEvent } from '../host/st.js';
 import { getSettings, updateSettings } from './store.js';
 import { describeKeyState } from './keys.js';
 import { createModelPicker } from './model-picker.js';
+import { getModelInfo } from './model-cache.js';
 import { createGalleryView, openImageViewer } from '../gallery/view.js';
 import { listRecords } from '../gallery/store.js';
+import { listCandidates, onReferencesChange } from '../references/store.js';
+import { createReferencesView } from '../references/view.js';
 
 const KEY_DEBOUNCE_MS = 500;
 const KEY_CHECKING_TEXT = 'Key wird geprüft …';
@@ -30,6 +33,7 @@ const MARKUP = `
    <div class="bfqig-body">
     <div class="bfqig-tabs" role="tablist">
       <button type="button" id="bfqig-tab-settings" class="menu_button bfqig-tab" role="tab" aria-controls="bfqig-pane-settings">Einstellungen</button>
+      <button type="button" id="bfqig-tab-references" class="menu_button bfqig-tab" role="tab" aria-controls="bfqig-pane-references">Referenzen</button>
       <button type="button" id="bfqig-tab-gallery" class="menu_button bfqig-tab" role="tab" aria-controls="bfqig-pane-gallery">Galerie</button>
     </div>
     <div id="bfqig-pane-settings" class="bfqig-pane" role="tabpanel">
@@ -43,6 +47,7 @@ const MARKUP = `
       <div id="bfqig-key-status" class="bfqig-note" aria-live="polite"></div>
       <label class="bfqig-label" for="bfqig-model">Modell</label>
       <div class="bfqig-model-slot"></div>
+      <div id="bfqig-model-ref-note" class="bfqig-note"></div>
       <label class="bfqig-label" for="bfqig-instruction">Prompt</label>
       <textarea id="bfqig-instruction" class="text_pole" rows="6"></textarea>
       <div class="flex-container">
@@ -71,6 +76,7 @@ const MARKUP = `
       </details>
       <button type="button" id="bfqig-test" class="menu_button bfqig-wide">Testbild generieren</button>
     </div>
+    <div id="bfqig-pane-references" class="bfqig-pane" role="tabpanel" hidden></div>
     <div id="bfqig-pane-gallery" class="bfqig-pane" role="tabpanel" hidden>
       <label class="checkbox_label bfqig-check" for="bfqig-auto-save">
         <input id="bfqig-auto-save" type="checkbox">
@@ -95,8 +101,8 @@ function providerLabel(id) {
     }
 }
 
-function wireTabs(root, onGallery) {
-    const tabs = [['settings', root.querySelector('#bfqig-tab-settings')], ['gallery', root.querySelector('#bfqig-tab-gallery')]];
+function wireTabs(root, onShow) {
+    const tabs = ['settings', 'references', 'gallery'].map((name) => [name, root.querySelector(`#bfqig-tab-${name}`)]);
     const show = (name) => {
         for (const [tabName, tab] of tabs) {
             const active = tabName === name;
@@ -104,7 +110,7 @@ function wireTabs(root, onGallery) {
             tab.classList.toggle('bfqig-tab-active', active);
             root.querySelector(`#bfqig-pane-${tabName}`).hidden = !active;
         }
-        if (name === 'gallery') onGallery();
+        onShow[name]?.();
     };
     for (const [name, tab] of tabs) tab.addEventListener('click', () => show(name));
     show('settings');
@@ -145,6 +151,35 @@ function createKeyStatus(root) {
     return { refresh, later };
 }
 
+// Tells the owner up front when the chosen model would silently ignore the checked reference pictures.
+function createReferenceNote(root) {
+    const note = root.querySelector('#bfqig-model-ref-note');
+    let sequence = 0;
+    async function refresh() {
+        const token = ++sequence;
+        if (!listCandidates().some((candidate) => candidate.enabled)) {
+            note.textContent = '';
+            return;
+        }
+        const settings = getSettings();
+        try {
+            const provider = getProvider(settings.provider);
+            const modelId = settings.models[provider.id] || provider.defaultModel;
+            const limit = provider.maxReferenceImages(await getModelInfo(provider.id, modelId));
+            if (token !== sequence) return;
+            note.textContent = limit > 1
+                ? `Dieses Modell nimmt bis zu ${limit} Referenzbilder.`
+                : limit === 1 ? 'Dieses Modell nimmt 1 Referenzbild.' : 'Dieses Modell nimmt keine Referenzbilder.';
+        } catch (error) {
+            if (token !== sequence) return;
+            console.warn(LOG_PREFIX, 'Reference note failed', error);
+            note.textContent = '';
+        }
+    }
+    onReferencesChange(() => refresh());
+    return { refresh };
+}
+
 export async function mountSettingsPanel({ onTestImage } = {}) {
     if (document.getElementById('bfqig-settings')) return;
     const host = document.getElementById('extensions_settings2') ?? document.getElementById('extensions_settings');
@@ -159,12 +194,17 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     root.innerHTML = MARKUP;
     const byId = (id) => root.querySelector(`#${id}`);
 
-    const picker = createModelPicker({});
+    const refNote = createReferenceNote(root);
+    const picker = createModelPicker({ onChange: () => refNote.refresh() });
     root.querySelector('.bfqig-model-slot').append(picker.element);
     const gallery = createGalleryView();
     root.querySelector('.bfqig-gallery-slot').append(gallery.element);
-    wireTabs(root, () => gallery.refresh());
+    const references = createReferencesView();
+    byId('bfqig-pane-references').append(references.element);
+    wireTabs(root, { gallery: () => gallery.refresh(), references: () => references.refresh() });
     const keyStatus = createKeyStatus(root);
+    // The limit comes from the model list, so the note can only be right once that list has loaded.
+    const loadModels = (providerId) => picker.refresh(providerId).then(() => refNote.refresh());
 
     const provider = byId('bfqig-provider');
     const key = byId('bfqig-key');
@@ -196,7 +236,8 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
         updateSettings({ provider: provider.value });
         key.value = getSettings().keys[provider.value] ?? '';
         keyStatus.refresh();
-        picker.refresh(provider.value);
+        refNote.refresh();
+        loadModels(provider.value);
     });
     key.addEventListener('input', () => {
         const current = getSettings();
@@ -245,5 +286,5 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
 
     host.append(root);
     keyStatus.refresh();
-    picker.refresh(settings.provider);
+    loadModels(settings.provider);
 }

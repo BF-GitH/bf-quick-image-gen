@@ -53,15 +53,24 @@ export async function listModels({ signal, fetchImpl } = {}) {
     return normalizeModels(json);
 }
 
-export function buildRequest({ model, prompt, aspect, quality, modelInfo }) {
-    const text = truncatePrompt(prompt, modelInfo?.maxPromptChars ?? DEFAULT_PROMPT_CHARS);
-    const size = selectOpenRouterSize(modelInfo?.supported ?? {}, aspect, quality);
-    return { url: GENERATE_URL, body: { model, prompt: text, ...size } };
+export function maxReferenceImages(modelInfo) {
+    const max = modelInfo?.supported?.input_references?.max;
+    return typeof max === 'number' && Number.isFinite(max) && max > 0 ? Math.floor(max) : 0;
 }
 
-export async function generateImage({ apiKey, model, prompt, aspect, quality, modelInfo, signal, fetchImpl }) {
+// The request field mirrors NanoGPT's; for OpenRouter it is taken from the docs and unverified.
+export function buildRequest({ model, prompt, aspect, quality, modelInfo, references }) {
+    const text = truncatePrompt(prompt, modelInfo?.maxPromptChars ?? DEFAULT_PROMPT_CHARS);
+    const size = selectOpenRouterSize(modelInfo?.supported ?? {}, aspect, quality);
+    const body = { model, prompt: text, ...size };
+    const refs = Array.isArray(references) ? references.slice(0, maxReferenceImages(modelInfo)) : [];
+    if (refs.length > 0) body.input_references = refs;
+    return { url: GENERATE_URL, body };
+}
+
+export async function generateImage({ apiKey, model, prompt, aspect, quality, modelInfo, references, signal, fetchImpl }) {
     if (!apiKey) throw new ProviderError(`${label}: Kein API-Key`, { provider: label, code: 'no_key' });
-    const { url, body } = buildRequest({ model, prompt, aspect, quality, modelInfo });
+    const { url, body } = buildRequest({ model, prompt, aspect, quality, modelInfo, references });
     const json = await requestJson(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

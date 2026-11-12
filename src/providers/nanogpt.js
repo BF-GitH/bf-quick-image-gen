@@ -77,15 +77,30 @@ export async function listModels({ signal, fetchImpl } = {}) {
     return normalizeModels(json);
 }
 
-export function buildRequest({ model, prompt, aspect, quality, modelInfo }) {
-    const text = truncatePrompt(prompt, modelInfo?.maxPromptChars ?? DEFAULT_PROMPT_CHARS);
-    const size = selectNanoGptSize(modelInfo?.supported ?? {}, aspect, quality);
-    return { url: GENERATE_URL, body: { model, prompt: text, n: 1, ...size } };
+// A model that takes exactly one input image uses it as the start of the picture (img2img): every one of the
+// nine such models tested copied the reference's framing instead of drawing the scene. Only models that take
+// several pictures treat them as references for who is shown.
+const MIN_REFERENCE_SLOTS = 2;
+
+export function maxReferenceImages(modelInfo) {
+    const max = modelInfo?.supported?.max_input_images;
+    if (typeof max !== 'number' || !Number.isFinite(max)) return 0;
+    const slots = Math.floor(max);
+    return slots >= MIN_REFERENCE_SLOTS ? slots : 0;
 }
 
-export async function generateImage({ apiKey, model, prompt, aspect, quality, modelInfo, signal, fetchImpl }) {
+export function buildRequest({ model, prompt, aspect, quality, modelInfo, references }) {
+    const text = truncatePrompt(prompt, modelInfo?.maxPromptChars ?? DEFAULT_PROMPT_CHARS);
+    const size = selectNanoGptSize(modelInfo?.supported ?? {}, aspect, quality);
+    const body = { model, prompt: text, n: 1, ...size };
+    const refs = Array.isArray(references) ? references.slice(0, maxReferenceImages(modelInfo)) : [];
+    if (refs.length > 0) body.input_references = refs;
+    return { url: GENERATE_URL, body };
+}
+
+export async function generateImage({ apiKey, model, prompt, aspect, quality, modelInfo, references, signal, fetchImpl }) {
     if (!apiKey) throw new ProviderError(`${label}: Kein API-Key`, { provider: label, code: 'no_key' });
-    const { url, body } = buildRequest({ model, prompt, aspect, quality, modelInfo });
+    const { url, body } = buildRequest({ model, prompt, aspect, quality, modelInfo, references });
     const json = await requestJson(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

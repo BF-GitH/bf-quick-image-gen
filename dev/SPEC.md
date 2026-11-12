@@ -917,3 +917,287 @@ character block: it has no chat model to condense it).
 - Version `1.2.0` in `manifest.json`, `package.json` and `package-lock.json`.
 - Live test (orchestrator): SillyTavern test instance, NanoGPT chat model and `wai-illustrious-sdxl`, a card of a
   published character (`dev/cards/*.json`, importable character cards), "Senden + Bild" with an empty key field.
+
+## 12. Reference pictures (version 1.3.0, **BINDING**)
+
+Field report: no anime model drew Kyouko Hori (Horimiya) recognisably from text alone; the research in
+`dev/research/anime-character-likeness.md` shows why (165 training pictures, missing in WAI's character list).
+Measured with real NanoGPT calls on 2026-11-12:
+
+- With one reference picture and a model built for it (`seedream-v4.5`, `seedream-v5.0-lite`, `qwen-image-3`,
+  `gpt-image-2`, `hidream-o1-image-dev`) the character is right in a new scene. The anime SDXL models only
+  copy the framing of the reference (img2img).
+- A face-only reference leaves the clothes to chance; a second, full-body picture fixed the uniform in 4 of 4.
+- Two characters with one picture each stayed separate in 6 of 6. A generated picture that shows two characters
+  worked as the reference for both in 8 of 8. A character without any reference came out wrong (wore another
+  character's glasses in 2 of 2). `seedream-v4.5` kept six characters apart in 4 of 4.
+- Request field: `input_references: [<data URL>, ...]` in the body of `POST /api/v1/images`. `seedream-v4.5`
+  cost 0.04 USD with one reference and with six; it took 18 s and 47 s.
+- The per-model limit is `supported_parameters.max_input_images` in NanoGPT's model list.
+- Three chat models wrote the two-line answer of 12.3 in 30 of 30 tries; weaker ones write
+  `Kyouko Hori from Horimiya` where the list says `Kyouko`, which `matchName` absorbs.
+
+This section replaces the corresponding texts and rules of sections 5.10, 5.12, 5.14, 5.15, 5.20, 5.21, 5.22, 9 and 11.
+
+### 12.1 Concept (owner's decisions)
+
+1. Reference pictures are one list for all chats. Each has names (who is on it), a checkbox and a source
+   (`upload` or `generated`). Only checked pictures are used.
+2. Every generated picture becomes a reference by itself: tagged with the people the chat model reported as
+   visible, checked. The owner deletes or unchecks what does not fit.
+3. The chat model says who is in the picture (first line `Shown:`). Without a chat model the names are searched
+   in the newest message.
+4. The user is shown only when a checked reference carries the persona name; otherwise the picture stays in the
+   user's view. No picture is taken from a character card.
+5. Selection: first the picture that shows the most people still missing, then single pictures for the rest, then
+   more pictures in turn; at most two pictures per person, never more than the model accepts, never a picture
+   with someone who is not in the scene.
+6. A model that accepts no reference draws without one; the panel says so.
+7. A button on every chat message generates a new picture for that message (it adds one, it deletes nothing).
+
+### 12.2 PURE: `src/references/select.js` (new)
+```js
+export const PER_NAME_LIMIT = 2
+export const NAME_LIMIT = 8                           // names per picture
+export const REFERENCE_LIMIT = 100                    // uploaded pictures
+export function normalizeNames(value)                 // 'a, b' or array -> unique trimmed names
+export function toCandidates({ uploads, gallery })    // -> [{ url, names, enabled, source, timestamp }]
+export function knownNames(candidates)                // -> names of enabled candidates
+export function matchName(name, known)                // -> entry of `known` or null
+export function resolveShownNames(names, known)       // -> unique names
+export function findNamesInText(text, known)          // -> known names found in the text
+export function selectReferences({ candidates, sceneNames, maxImages, perNameLimit = PER_NAME_LIMIT })  // -> [{ url, names }]
+export function buildReferencePreamble(selected)      // -> string
+```
+- `normalizeNames`: a string is split at commas; entries are trimmed, empty ones dropped, each cut to 60
+  characters; unique without regard to case (the first spelling wins); at most `NAME_LIMIT`. Anything else -> `[]`.
+- `toCandidates`: uploads first in list order, then gallery records in list order (newest first) whose `names` is
+  a non-empty array. `enabled` = `entry.enabled !== false`, `source` = `'upload'` or `'generated'`, `timestamp` a
+  finite number or 0, `names` through `normalizeNames`. Entries without a non-empty string `url` are dropped.
+- `knownNames`: names of the enabled candidates, unique without regard to case, in candidate order.
+- `matchName`: cut the name at the first ` from ` (any case) and trim. Comparison ignores case. An equal entry
+  wins. Otherwise an entry matches when all of its words stand as whole words in the name, or all words of the
+  name stand in the entry; of several the one with the most words, then the first in `known`. Words are split at
+  whitespace. Nothing matches, or the name is empty -> `null`.
+- `resolveShownNames`: each name becomes `matchName(name, known)` or, without a match, the trimmed name itself
+  (cut at ` from ` as above); empty results are dropped; unique without regard to case; order kept.
+- `findNamesInText`: the known names that occur in the text as whole words (ignoring case; a name of several
+  words must occur as that phrase), ordered by first position.
+- `selectReferences`: `scene` = `sceneNames`, unique without regard to case. Empty scene or `maxImages < 1` -> `[]`.
+  *Eligible*: candidates that are enabled, have at least one name, and whose names are all in the scene. A
+  candidate is *allowed* while it is not chosen and each of its names has fewer than `perNameLimit` pictures.
+  - Cover: while fewer than `maxImages` are chosen and some allowed candidate shows a scene name that has no
+    picture yet, take the allowed candidate that shows the most such names. Ties: if that number is 1, an upload
+    before a generated picture; then fewer names; then the earlier candidate.
+  - Fill: go through the scene names in order, again and again, until a round adds nothing or `maxImages` is
+    reached. For a name with fewer than `perNameLimit` pictures take the allowed candidate that shows it: an
+    upload before a generated picture, then fewer names, then the earlier candidate.
+  - "Earlier candidate" is the order of `toCandidates`: uploads oldest first (the first picture of a person is
+    the anchor), generated pictures newest first. No timestamp is compared: it would put the latest upload first.
+  - Result: `{ url, names }` in the order chosen.
+- `buildReferencePreamble`: `''` for an empty list. Otherwise exactly this shape:
+  `Reference images: image 1 shows Kyouko and Yuki; image 2 shows Tooru. Draw these people exactly as in their reference images: same face, eyes, hair and drawing style. Where the description differs from a reference image, the reference image wins. Scene: `
+  (names joined with `, ` and with ` and ` before the last; one trailing space; the caller appends the description).
+
+### 12.3 PURE: `src/prompt/scene.js`, `src/gallery/records.js`, `src/settings/defaults.js`, providers
+`scene.js`:
+```js
+export const POV_SENTENCE         // ' The picture is seen through the eyes of {{user}}: {{user}} is not in the picture.'
+export const USER_SHOWN_SENTENCE  // ' {{user}} has a reference picture and is shown in the picture when {{user}} takes part in the moment.'
+export function splitShownLine(text)   // -> { names: string[], text: string }
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [] })
+```
+- `SYSTEM_PROMPT` (exact, one line):
+  `You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. Line 2: one short description in plain English, at most 45 words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light. Refer to each person by the name from line 1; for a character from a published work (anime, game, book, film, series) write the full canonical name and the title of the work instead at the first mention, for example "Hermione Granger from Harry Potter". Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen. No dialogue, no explanations. Output only these two lines.`
+- `DEFAULT_INSTRUCTION` (exact, one line):
+  `Depict the current moment of this roleplay as one image: what happens in the latest message. Show {{char}} and everyone else who is present in that moment.`
+  The sentence about the user's view is no longer part of it: `build.js` appends `POV_SENTENCE` or
+  `USER_SHOWN_SENTENCE` (both exact as in the comment above, each starting with one space).
+- `LEGACY_DEFAULT_INSTRUCTIONS` additionally holds the version 1.2 default exactly (`...seen through the eyes of
+  {{user}}. {{user}} is not in the picture.`).
+- `splitShownLine`: remove think blocks as `cleanLlmOutput` does (closed blocks, and an unclosed block in front).
+  Take the first line that matches `/^[ \t>*_`"']*shown\s*:(.*)$/im`. Its names: split at commas, strip
+  surrounding whitespace, quotes, backticks, asterisks and a trailing period, drop empty entries and `none`,
+  `nobody`, `no one`, `-` (any case), at most `NAME_LIMIT`. `text` is the input without that line. No such
+  line -> `{ names: [], text: <input without think blocks> }`. `cleanLlmOutput` itself is unchanged.
+- `buildLlmRequest`: `prompt` =
+  `Task: <instruction>\n\n[Known names, for spelling only]\n<names joined with ", ">\n\n<characterBlock>\n\n<sceneBlock>\n\nImage prompt:`;
+  an empty names list and an empty character block are left out together with their separators.
+
+`records.js`:
+```js
+export function addRecord(list, record)        // as before; keeps `names` (normalizeNames) and `enabled` (boolean, default true)
+export function updateRecord(list, url, patch) // -> new list; only `names` and `enabled` of the patch are applied
+```
+`defaults.js`: `DEFAULT_SETTINGS.references = []`. `normalizeSettings`: `references` is an array of
+`{ url, names, enabled, timestamp }` (url a non-empty string, else dropped; `names` through `normalizeNames`;
+`enabled` a boolean, default true; `timestamp` a finite number or 0), capped at `REFERENCE_LIMIT`. Gallery entries
+keep working as before; a `names` member is normalised and an `enabled` member coerced to boolean when present.
+
+Providers (`nanogpt.js`, `openrouter.js`, same shape):
+```js
+export function maxReferenceImages(modelInfo)   // integer >= 0
+export function buildRequest({ model, prompt, aspect, quality, modelInfo, references })
+export async function generateImage({ apiKey, model, prompt, aspect, quality, modelInfo, references, signal, fetchImpl })
+```
+`maxReferenceImages`: NanoGPT `modelInfo.supported.max_input_images`, OpenRouter
+`modelInfo.supported.input_references.max`; anything that is not a positive finite number -> 0; floored.
+NanoGPT only: a floored value below 2 counts as 0. A model with exactly one input image uses it as the start of
+the picture (img2img): all nine tested (the six anime SDXL models, Anima, Z Image Base, Krea 2 Turbo) copied the
+framing of the reference, so sending one would turn every picture into a variation of the reference. The panel
+note reads `Dieses Modell nimmt 1 Referenzbild.` for a limit of 1 (possible on OpenRouter).
+`buildRequest`: with a non-empty `references` array the body gets
+`input_references: references.slice(0, maxReferenceImages(modelInfo))`; an empty slice omits the field.
+OpenRouter's field is taken from its docs and is unverified.
+
+### 12.4 HOST: `src/host/images.js`, `src/host/message-buttons.js` (new)
+```js
+// images.js
+export async function toJpegDataUrl(source, { maxSide = 1024, quality = 0.9 } = {})   // url string, Blob or File -> 'data:image/jpeg;base64,...'
+// message-buttons.js
+export function installMessageButton({ className, iconClass, title, onClick })       // onClick(messageIndex); idempotent per className
+```
+- `toJpegDataUrl`: a string is fetched (not ok -> `Error('Bild konnte nicht geladen werden (HTTP <status>)')`).
+  `createImageBitmap`, scale so that the longer side is at most `maxSide` (never enlarge), draw on a canvas over a
+  white fill (so a transparent PNG does not turn black), `toDataURL('image/jpeg', quality)`, close the bitmap.
+  Every failure throws.
+- `installMessageButton`: markup
+  `<div class="mes_button <className> <iconClass>" title="<title>" tabindex="0" role="button"></div>`, appended to
+  `.extraMesButtons` of `#message_template` and of every `.mes` in `#chat` that has none yet. A `MutationObserver`
+  on `#chat` (`childList`, `subtree`) adds it to messages that appear later (both hosts clone the template;
+  TauriTavern may mount messages late). One delegated `click` listener on `document` for `.<className>`:
+  `Number(closest('.mes')?.getAttribute('mesid'))`, ignored unless it is an integer >= 0. If `#chat` or the
+  template is missing at call time, retry every 500 ms for up to 30 s. Verified in both hosts' `index.html`:
+  the message template has `.mes_buttons > .extraMesButtons` filled with `.mes_button` entries.
+
+### 12.5 UI and WIRING
+`src/gallery/store.js`: `export function updateGalleryRecord(url, patch)` (through `updateRecord`, then the
+listeners). New `src/gallery/actions.js`:
+```js
+export async function deleteGeneratedImage(url)   // deleteImage (a false result is only logged), removeGalleryRecord, detachImageFromChat; saveChat when a message changed
+```
+The viewer's delete button calls it; its behaviour is unchanged.
+
+New `src/references/store.js`:
+```js
+export const REFERENCE_FOLDER = 'bfqig-references'
+export function listUploads()
+export function listCandidates()                  // toCandidates({ uploads: settings.references, gallery: settings.gallery })
+export async function addUpload(file, names)      // -> the new record
+export function setReferenceNames(url, names)     // an upload or a generated picture
+export function setReferenceEnabled(url, enabled)
+export async function removeUpload(url)           // deleteImage, then the record
+export function onReferencesChange(listener)      // -> unsubscribe; also fires when the gallery changes
+```
+`addUpload`: `normalizeNames(names)` empty -> `Error('Bitte zuerst einen Namen eintragen.')`; no file ->
+`Error('Bitte zuerst ein Bild auswählen.')`; `REFERENCE_LIMIT` reached ->
+`Error('Es sind höchstens 100 Referenzbilder möglich.')`. Then `toJpegDataUrl(file)`,
+`uploadImage({ base64, extension: 'jpg', folder: REFERENCE_FOLDER, fileName: 'ref_' + timestampName() })` and the
+record `{ url, names, enabled: true, timestamp: Date.now() }` appended at the END of `settings.references`
+(the first upload of a person stays first).
+
+New `src/references/view.js`: `export function createReferencesView()` -> `{ element, refresh() }`.
+
+| Element | Id or class |
+|---|---|
+| hint | class `bfqig-note` |
+| file input (`type="file" accept="image/*"`, hidden: both hosts hide file inputs with their own CSS) | `bfqig-ref-file` |
+| visible label that opens the picker (`for="bfqig-ref-file"`, text `Bild auswählen`), name of the chosen file (`Kein Bild gewählt` when none) | `bfqig-ref-pick`, `bfqig-ref-file-name` |
+| names input for the upload | `bfqig-ref-names` |
+| upload button | `bfqig-ref-upload` |
+| filter input (`type="search"`) | `bfqig-ref-filter` |
+| list | `bfqig-ref-list` |
+| empty note | `bfqig-ref-empty` |
+| row (`data-url`) | class `bfqig-ref-item` |
+| thumbnail button, names input, checkbox, delete button of a row | classes `bfqig-ref-thumb`, `bfqig-ref-item-names`, `bfqig-ref-enabled`, `bfqig-ref-delete` |
+
+Two sections with the headings `Hochgeladen` and `Erzeugt`; a section without rows is left out. `Erzeugt` lists
+the gallery records that have at least one name, newest first. The thumbnail (lazy) opens `openImageViewer`
+with the gallery record, or with `{ url, prompt: <names joined with ", "> }` for an upload. For an upload the
+viewer gets a second argument `{ confirmText: 'Referenzbild endgültig löschen?', onDelete: () => removeUpload(url) }`:
+`openImageViewer(record, { confirmText, onDelete } = {})` then asks with that text and awaits `onDelete()`
+instead of `deleteGeneratedImage(record.url)`, so no entry without a file stays in the list. Without the
+second argument the viewer behaves as before. The names input
+writes on `change` through `setReferenceNames`, the checkbox through `setReferenceEnabled`. Delete: an upload
+after `confirmDialog('Referenzbild endgültig löschen?')` through `removeUpload`; a generated picture after
+`confirmDialog('Bild endgültig löschen? Es fehlt dann auch in der Chat-Nachricht.')` through
+`deleteGeneratedImage`. The filter hides rows whose names do not contain the text (ignoring case). The view
+re-renders on `onReferencesChange`. Errors of `addUpload` go to `notify.error`; after a successful upload the
+file input and the names input are cleared.
+
+`src/settings/panel.js`: third tab `bfqig-tab-references` (label `Referenzen`) between the two existing ones,
+pane `bfqig-pane-references`. Directly under the model slot a note `<div id="bfqig-model-ref-note"
+class="bfqig-note"></div>`: empty when no reference is checked; otherwise, with
+`n = provider.maxReferenceImages(await getModelInfo(providerId, modelId))`, `Dieses Modell nimmt keine
+Referenzbilder.` for 0 and `Dieses Modell nimmt bis zu <n> Referenzbilder.` otherwise. It is refreshed after the
+model list has loaded, on a model or provider change and on `onReferencesChange`.
+
+`src/prompt/build.js`:
+```js
+export async function buildImagePrompt({ lastIndex, settings, maxPromptChars, candidates = [], maxReferences = 0 })
+// -> { prompt, usedLlm, shownNames, references, failedReferences }     references: [{ url, names, dataUrl }]
+```
+1. `known = knownNames(candidates)`, `userName = getParticipantNames().user`,
+   `userShown = Boolean(userName) && matchName(userName, known) !== null`.
+2. `instruction = substituteMacros(settings.instruction + (userShown ? USER_SHOWN_SENTENCE : POV_SENTENCE))`.
+3. Chat-model path: `buildLlmRequest({ instruction, sceneBlock, characterBlock, knownNames: known })`;
+   `splitShownLine(answer)`; `description = cleanLlmOutput(text)`; `shownNames = resolveShownNames(names, known)`.
+   An answer without the line, an empty description or a failed request: `shownNames =
+   findNamesInText(<text of the current moment>, known)`; the direct prompt is used only when the description is
+   empty or the request failed, as before.
+4. Without `userShown`, the user's name (by `matchName` against `[userName]`) is removed from `shownNames`.
+5. `selectReferences({ candidates, sceneNames: shownNames, maxImages: maxReferences })`, then
+   `toJpegDataUrl(url)` for each; a picture that cannot be loaded is dropped and counted in `failedReferences`.
+6. Text = `buildReferencePreamble(<loaded references>)` + description (or + direct prompt), then
+   `finalizePrompt` as before.
+
+`src/flow/generate-image.js`: `prepareImage` passes `candidates: listCandidates()` and
+`maxReferences: target.provider.maxReferenceImages(modelInfo)`, shows
+`notify.warning('Referenzbilder konnten nicht geladen werden, das Bild entsteht ohne sie.')` when
+`failedReferences > 0`, hands `references: <data URLs>` to `provider.generateImage`, and returns `names:
+shownNames` in `prepared`. `attachPreparedImage` stores `names` and `enabled: true` in the gallery record. The
+test image is unchanged (no names, no references).
+
+`src/flow/send-with-image.js`: the returned object gets `imageForMessage(messageIndex)`. It refuses with
+`MESSAGES.busy` while a retry or a controller runs, with `MESSAGES.generating` while the host generates, and with
+`Die Nachricht ist nicht mehr vorhanden.` when the message does not exist. Otherwise it runs exactly what a
+retry runs (status bar with `Abbrechen`, `CHAT_CHANGED` aborts, `generateImageForMessage(index, { signal,
+saveAfterAttach: true })`, failures through the retry toast). `retry` and `imageForMessage` share that code.
+
+`index.js`: after the panel is mounted, `installMessageButton({ className: 'bfqig_mes_image', iconClass:
+'fa-solid fa-image', title: 'Bild für diese Nachricht erzeugen', onClick: (index) => flow.imageForMessage(index) })`.
+
+### 12.6 UI copy (German)
+
+| Key / place | Text |
+|---|---|
+| tab | `Referenzen` |
+| hint | `Referenzbilder zeigen dem Bildmodell, wie eine Figur aussieht. Sind mehrere Figuren auf einem Bild, die Namen mit Komma trennen. Verwendet werden nur angehakte Bilder, höchstens zwei pro Figur. Jedes erzeugte Bild wird von selbst Referenz für die Figuren darauf.` |
+| names placeholder (upload and rows) | `Name der Figur, z. B. Kyouko` |
+| upload button | `Bild hochladen` |
+| filter placeholder | `Name suchen …` |
+| section headings | `Hochgeladen`, `Erzeugt` |
+| empty note | `Noch keine Referenzbilder.` |
+| checkbox title | `Als Referenz verwenden` |
+| delete title | `Löschen` |
+| message button title | `Bild für diese Nachricht erzeugen` |
+
+### 12.7 Tests and version
+- New `tests/references/select.test.js`: every function of 12.2, including these cases from the owner's
+  examples: scene Kyouko + Yuki with uploads `Kyouko`, `Yuki` and a generated `Kyouko, Yuki` picture ->
+  group, Kyouko, Yuki; four people with `maxImages` 3 -> group picture plus the two singles; the library
+  `[Yuki+Tooru, Kyouko, Yuki, Yuki+Tooru+Kyouko, Miyamura, Sengoku]` with all five in the scene -> for 3: trio,
+  Miyamura, Sengoku; for 10: trio, Miyamura, Sengoku, Kyouko, Yuki (the duo stays out, Yuki has two); three
+  people with two uploads each and `maxImages` 4 -> one each, then the first person's second; a picture with a
+  person outside the scene, a disabled picture and `maxImages` 0 are never chosen. `matchName` with the measured
+  answers `Kyouko Hori from Horimiya` -> `Kyouko`, `Yuki Yoshikawa` -> `Yuki`, `Izumi Miyamura` -> `null` for
+  the list `[Kyouko, Yuki]`. The preamble string exactly.
+- `tests/prompt`: the new system prompt and default instruction (single lines, exact), the two sentences,
+  `splitShownLine` (plain, trailing spaces, behind a think block, `Shown: none`, no line), `buildLlmRequest`
+  with and without names; the legacy defaults 1.0, 1.1 and 1.2 are migrated.
+- `tests/providers`: `maxReferenceImages` and `buildRequest` with references for both providers.
+- `tests/gallery`, `tests/settings`: `names`/`enabled` on records, `updateRecord`, `references` in the settings.
+- `tests/architecture.test.js`: `src/references/select.js` joins the PURE list.
+- No existing test is deleted; the count does not drop (194 before). Version `1.3.0`.
+- Live test (orchestrator): SillyTavern test instance, `hidream-o1-image-dev` and `seedream-v4.5`, an uploaded
+  reference, "Senden + Bild", the message button, the Referenzen tab.

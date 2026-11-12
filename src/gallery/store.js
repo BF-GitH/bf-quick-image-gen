@@ -1,7 +1,7 @@
 // Gallery records live in the settings so they survive restarts; listeners keep open views in sync.
 
 import { LOG_PREFIX } from '../shared/constants.js';
-import { addRecord, removeRecord } from './records.js';
+import { addRecord, removeRecord, updateRecord } from './records.js';
 import { getSettings, updateSettings } from '../settings/store.js';
 
 const listeners = new Set();
@@ -27,6 +27,12 @@ export function addGalleryRecord(record) {
 
 export function removeGalleryRecord(url) {
     updateSettings({ gallery: removeRecord(getSettings().gallery, url) });
+    emit();
+}
+
+// Names and the reference checkbox of a generated picture are edited in the Referenzen tab.
+export function updateGalleryRecord(url, patch) {
+    updateSettings({ gallery: updateRecord(getSettings().gallery, url, patch) });
     emit();
 }
 

@@ -35,6 +35,38 @@ export async function deleteImage(path) {
     }
 }
 
+// Reference pictures go into the request body as data URLs; a downscaled JPEG keeps that body small.
+export async function toJpegDataUrl(source, { maxSide = 1024, quality = 0.9 } = {}) {
+    let blob = source;
+    if (typeof source === 'string') {
+        const response = await fetch(source);
+        if (!response.ok) {
+            throw new Error(`Bild konnte nicht geladen werden (HTTP ${response.status})`);
+        }
+        blob = await response.blob();
+    }
+    const bitmap = await createImageBitmap(blob);
+    try {
+        const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+        const width = Math.max(1, Math.round(bitmap.width * scale));
+        const height = Math.max(1, Math.round(bitmap.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Bild konnte nicht umgewandelt werden.');
+        // JPEG has no alpha channel: without a fill, transparent pixels of a PNG would turn black.
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, width, height);
+        context.drawImage(bitmap, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        if (!dataUrl.startsWith('data:image/jpeg')) throw new Error('Bild konnte nicht umgewandelt werden.');
+        return dataUrl;
+    } finally {
+        bitmap.close();
+    }
+}
+
 export async function saveToDevice(url, fileName) {
     const response = await fetch(url);
     if (!response.ok) {

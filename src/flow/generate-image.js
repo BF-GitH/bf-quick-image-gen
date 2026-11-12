@@ -10,12 +10,14 @@ import { getSettings } from '../settings/store.js';
 import { resolveApiKey } from '../settings/keys.js';
 import { getModelInfo } from '../settings/model-cache.js';
 import { addGalleryRecord } from '../gallery/store.js';
+import { listCandidates } from '../references/store.js';
 import { getChatId, notify, timestampName } from '../host/st.js';
 import { attachImageToMessage, getImageFolderName, getRawMessage, saveChat } from '../host/chat.js';
 import { uploadImage, saveToDevice, deleteImage } from '../host/images.js';
 
 const TEST_PROMPT = 'A cozy fantasy tavern interior at night, warm lantern light, wooden beams, detailed illustration';
 const REMOTE_ONLY_WARNING = 'Bild konnte nicht lokal gespeichert werden, es ist nur verlinkt.';
+const REFERENCES_FAILED_WARNING = 'Referenzbilder konnten nicht geladen werden, das Bild entsteht ohne sie.';
 const MESSAGE_GONE = 'Die Nachricht ist nicht mehr vorhanden.';
 // Lets the failure toast tell "nothing left to retry" apart from a failure worth retrying.
 export const MESSAGE_GONE_CODE = 'MESSAGE_GONE';
@@ -42,7 +44,7 @@ async function resolveTarget(signal) {
 }
 
 // Uploading keeps the image working offline and after provider URLs expire; a remote URL is the last resort.
-async function produceImage({ target, modelInfo, prompt, folder, ts, signal }) {
+async function produceImage({ target, modelInfo, prompt, references, folder, ts, signal }) {
     const { settings, provider, model, apiKey } = target;
     const result = await provider.generateImage({
         apiKey,
@@ -51,6 +53,7 @@ async function produceImage({ target, modelInfo, prompt, folder, ts, signal }) {
         aspect: settings.aspect,
         quality: settings.quality,
         modelInfo,
+        references,
         signal,
     });
     throwIfAborted(signal);
@@ -68,7 +71,7 @@ async function produceImage({ target, modelInfo, prompt, folder, ts, signal }) {
     return { url, extension };
 }
 
-function record({ url, prompt, providerId, model, character }) {
+function record({ url, prompt, providerId, model, character, names }) {
     addGalleryRecord({
         url,
         prompt,
@@ -76,6 +79,8 @@ function record({ url, prompt, providerId, model, character }) {
         model,
         character,
         timestamp: Date.now(),
+        // A generated picture becomes a checked reference for the people on it (owner's decision, spec 12.1).
+        ...(names ? { names, enabled: true } : {}),
     });
 }
 
@@ -103,17 +108,28 @@ export async function prepareImage(lastIndex, { signal } = {}) {
     const target = await resolveTarget(signal);
     const modelInfo = await getModelInfo(target.provider.id, target.model);
     throwIfAborted(signal);
-    const { prompt } = await buildImagePrompt({
+    const { prompt, shownNames, references, failedReferences } = await buildImagePrompt({
         lastIndex,
         settings: target.settings,
         maxPromptChars: promptLimit(modelInfo),
+        candidates: listCandidates(),
+        maxReferences: target.provider.maxReferenceImages(modelInfo),
     });
     throwIfAborted(signal);
+    if (failedReferences > 0) notify.warning(REFERENCES_FAILED_WARNING);
 
     const folder = getImageFolderName();
     const ts = timestampName();
-    const { url, extension } = await produceImage({ target, modelInfo, prompt, folder, ts, signal });
-    return { url, prompt, extension, providerId: target.provider.id, model: target.model, folder, ts };
+    const { url, extension } = await produceImage({
+        target,
+        modelInfo,
+        prompt,
+        references: references.map((reference) => reference.dataUrl),
+        folder,
+        ts,
+        signal,
+    });
+    return { url, prompt, extension, providerId: target.provider.id, model: target.model, folder, ts, names: shownNames };
 }
 
 export function discardPreparedImage(prepared) {
@@ -124,12 +140,12 @@ export function discardPreparedImage(prepared) {
 // Everything up to the gallery record runs before the first await: the parallel mode returns this promise from
 // its MESSAGE_RECEIVED listener, and the host renders and saves the reply right after the listener settles.
 export async function attachPreparedImage(messageIndex, prepared, { token, save = false } = {}) {
-    const { url, prompt, extension, providerId, model, folder, ts } = prepared;
+    const { url, prompt, extension, providerId, model, folder, ts, names } = prepared;
     if (!isSameMessage(messageIndex, token) || !attachImageToMessage(messageIndex, { url, title: prompt })) {
         discardPreparedImage(prepared);
         throw messageGoneError();
     }
-    record({ url, prompt, providerId, model, character: folder });
+    record({ url, prompt, providerId, model, character: folder, names: Array.isArray(names) ? names : [] });
     if (save) await saveChat();
     if (getSettings().autoSaveDialog && extension) {
         saveToDevice(url, `tauri_${ts}.${extension}`).catch((error) => {

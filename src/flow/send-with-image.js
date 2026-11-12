@@ -1,5 +1,5 @@
 // WIRING: binds the pure send-with-image controllers (hold mode and parallel mode) to the host and adds the
-// tap-to-retry path.
+// tap-to-retry path, which the per-message image button reuses.
 
 import { createSendWithImageController, MESSAGES } from './run-state.js';
 import { createParallelImageController } from './parallel-run.js';
@@ -100,23 +100,42 @@ export function initSendWithImage() {
         onFailure: showFailure,
     });
 
-    async function retry(messageIndex) {
-        const failure = failures.get(messageIndex);
-        if (!failure) return;
+    // Retry and the message button share the job slot, the status bar and the failure toast.
+    function refuseWhileBusy() {
         if (retrying || holdController.isActive() || parallelController.isActive()) {
             notify.warning(MESSAGES.busy);
-            return;
+            return true;
         }
         if (isGenerating()) {
             notify.warning(MESSAGES.generating);
-            return;
+            return true;
         }
+        return false;
+    }
+
+    async function retry(messageIndex) {
+        const failure = failures.get(messageIndex);
+        if (!failure) return;
+        if (refuseWhileBusy()) return;
         if (getChatId() !== failure.chatId || getRawMessage(messageIndex) !== failure.message) {
             failures.delete(messageIndex);
             notify.warning(MESSAGE_GONE);
             return;
         }
+        await runForMessage(messageIndex);
+    }
 
+    // Adds one more picture to the message; the ones it already has stay.
+    async function imageForMessage(messageIndex) {
+        if (refuseWhileBusy()) return;
+        if (!getRawMessage(messageIndex)) {
+            notify.warning(MESSAGE_GONE);
+            return;
+        }
+        await runForMessage(messageIndex);
+    }
+
+    async function runForMessage(messageIndex) {
         retrying = true;
         const abort = new AbortController();
         const offChatChanged = onHostEvent('CHAT_CHANGED', () => abort.abort());
@@ -138,5 +157,6 @@ export function initSendWithImage() {
         // Read at call time, so toggling the checkbox takes effect with the next send.
         start: () => (getSettings().parallelImage ? parallelController : holdController).start(),
         retry,
+        imageForMessage,
     };
 }

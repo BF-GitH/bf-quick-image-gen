@@ -1,16 +1,23 @@
 // Turns chat snapshots into an image prompt. Pure: the caller supplies the snapshots.
 
-export const DEFAULT_INSTRUCTION = 'Depict the current moment of this roleplay as one image: what happens in the latest message. The picture shows {{char}}, seen through the eyes of {{user}}. {{user}} is not in the picture.';
+import { NAME_LIMIT } from '../references/select.js';
+
+export const DEFAULT_INSTRUCTION = 'Depict the current moment of this roleplay as one image: what happens in the latest message. Show {{char}} and everyone else who is present in that moment.';
+
+// build.js appends one of these: the user is drawn only when a reference picture of the user exists.
+export const POV_SENTENCE = ' The picture is seen through the eyes of {{user}}: {{user}} is not in the picture.';
+export const USER_SHOWN_SENTENCE = ' {{user}} has a reference picture and is shown in the picture when {{user}} takes part in the moment.';
 
 // Stored settings that still hold an old default get the new one; a text the user wrote is kept.
 export const LEGACY_DEFAULT_INSTRUCTIONS = Object.freeze([
     'Depict the current moment of this roleplay as one image: the characters present with their appearance (hair, eyes, build, clothing), their pose and expression, the location, lighting and mood. Take the characters\' looks and the setting from the first message and the current action from the latest messages.',
     'Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.',
+    'Depict the current moment of this roleplay as one image: what happens in the latest message. The picture shows {{char}}, seen through the eyes of {{user}}. {{user}} is not in the picture.',
 ]);
 
 export const LIMITS = Object.freeze({ firstMessageChars: 2500, messageChars: 1500, characterChars: 1200, characterCount: 4 });
 
-const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Write one short description in plain English, at most 45 words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light. Name a character from a published work (anime, game, book, film, series) with the full canonical name and the title of the work, for example "Hermione Granger from Harry Potter"; use no other names. Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen. No dialogue, no explanations. Output only the image prompt.';
+const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. Line 2: one short description in plain English, at most 45 words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light. Refer to each person by the name from line 1; for a character from a published work (anime, game, book, film, series) write the full canonical name and the title of the work instead at the first mention, for example "Hermione Granger from Harry Potter". Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen. No dialogue, no explanations. Output only these two lines.';
 
 const THINK_BLOCKS = /<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 const CODE_BLOCKS = /<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
@@ -176,9 +183,16 @@ export function buildCharacterBlock({ characters, userName }) {
     return `${CHARACTER_HEADING}\n${entries.join(SECTION_SEPARATOR)}`;
 }
 
-export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '' }) {
+// The list only fixes spelling, so the names the chat model reports can be matched to reference pictures.
+const KNOWN_NAMES_HEADING = '[Known names, for spelling only]';
+
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [] }) {
+    const names = (Array.isArray(knownNames) ? knownNames : []).map(toText).filter((name) => name.trim());
     const characters = toText(characterBlock);
-    const middle = characters ? `${characters}${SECTION_SEPARATOR}` : '';
+    const middle = [names.length > 0 ? `${KNOWN_NAMES_HEADING}\n${names.join(', ')}` : '', characters]
+        .filter(Boolean)
+        .map((block) => `${block}${SECTION_SEPARATOR}`)
+        .join('');
     return {
         systemPrompt: SYSTEM_PROMPT,
         prompt: `Task: ${toText(instruction)}${SECTION_SEPARATOR}${middle}${toText(sceneBlock)}\n\nImage prompt:`,
@@ -189,10 +203,34 @@ export function buildDirectPrompt({ instruction, sceneBlock }) {
     return `${toText(instruction)}\n\n${toText(sceneBlock)}`;
 }
 
-export function cleanLlmOutput(text) {
-    let value = toText(text).replace(THINK_BLOCKS, '');
+function stripThinkBlocks(text) {
     // Reasoning models sometimes leave an unclosed think block in front of the answer.
-    value = value.replace(/^[\s\S]*<\/(think|thinking|reasoning)\s*>/i, '');
+    return toText(text).replace(THINK_BLOCKS, '').replace(/^[\s\S]*<\/(think|thinking|reasoning)\s*>/i, '');
+}
+
+const SHOWN_LINE = /^[ \t>*_`"']*shown\s*:(.*)$/im;
+const NO_ONE = new Set(['none', 'nobody', 'no one', '-']);
+
+function cleanShownName(part) {
+    const strip = (value) => value.replace(/^[\s"'`*“”„‘’]+/, '').replace(/[\s"'`*“”„‘’]+$/, '');
+    return strip(strip(part).replace(/\.+$/, ''));
+}
+
+export function splitShownLine(text) {
+    const value = stripThinkBlocks(text);
+    const match = SHOWN_LINE.exec(value);
+    if (!match) return { names: [], text: value };
+    const names = match[1].split(',')
+        .map(cleanShownName)
+        .filter((name) => name && !NO_ONE.has(name.toLowerCase()))
+        .slice(0, NAME_LIMIT);
+    const end = match.index + match[0].length;
+    const rest = value.slice(end).replace(/^\r?\n/, '');
+    return { names, text: value.slice(0, match.index) + rest };
+}
+
+export function cleanLlmOutput(text) {
+    let value = stripThinkBlocks(text);
     const fence = value.match(/```[^\n`]*\n?([\s\S]*?)```/);
     if (fence) value = fence[1];
     value = value.trim().replace(/^(?:image\s+)?prompt\s*:\s*/i, '');

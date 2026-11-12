@@ -14,6 +14,8 @@ A normal send is never affected. The UI is German.
   words, the most important first); if that fails the extension falls back to a direct prompt. A character from a
   published work is named with its work (`Hermione Granger from Harry Potter`), which is what anime models
   recognise.
+- **Reference pictures** keep a character looking the same: upload a picture, name it, and it goes along
+  whenever that character is in the scene. Every generated image becomes a reference by itself.
 - A **Galerie** tab lists every generated image.
 
 ## Install
@@ -45,10 +47,34 @@ Disable or remove the original if you no longer want its palette button and sett
 7. A long-press on a generated image in the chat opens the viewer with "Löschen" and "Auf Gerät speichern"
    (on Android the host's own image controls only appear on hover).
 
+### Reference pictures
+
+Text alone rarely gets a specific character right: the anime models have seen too few pictures of most of them.
+A reference picture does.
+
+1. Pick a model that accepts reference pictures. The note under the model list says how many it takes. Tested on
+   NanoGPT: `seedream-v4.5`, `seedream-v5.0-lite`, `qwen-image-3`, `gpt-image-2`, `hidream-o1-image-dev`. The
+   anime SDXL models only copy the framing of a reference.
+2. Tab "Referenzen": choose a picture, type the character's name, "Bild hochladen". For a picture with several
+   characters separate the names with commas. Two pictures per character work best: the face, and the whole
+   figure in the outfit you want.
+3. From then on the chat model says who is in each picture, and the matching reference pictures go along.
+
+- Only checked pictures are used, at most two per character and never more than the model takes.
+- A picture that shows several characters of the scene goes first, so four characters fit into three pictures.
+  A picture with someone who is not in the scene stays out.
+- Every generated image is tagged with the characters on it and is checked by itself. Delete or uncheck the ones
+  you do not like, otherwise their flaws carry over.
+- You appear in pictures only when a checked reference carries your persona name; otherwise the picture is seen
+  through your eyes.
+- The image button among a message's icons generates a new picture for that message.
+- More reference pictures cost time, not money: `seedream-v4.5` took 18 s with one and 47 s with six, at the
+  same price.
+
 ### Prompt and models
 
-- The default prompt shows `{{char}}` through the eyes of `{{user}}`; the user is not in the picture. Change the
-  text under "Prompt" to show someone else. An install that still has an old default gets the new one
+- The default prompt shows `{{char}}` and everyone else who is present, seen through the eyes of `{{user}}`.
+  Change the text under "Prompt" to show someone else. An install that still has an old default gets the new one
   automatically; a text you changed is kept ("Standard" restores the default).
 - Anime models on NanoGPT that draw known characters well with this prompt: `wai-illustrious-sdxl`
   (WAI Illustrious SDXL, fast and cheap) and `anima/text-to-image` (Anima, slower, keeps more detail).

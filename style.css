@@ -12,16 +12,24 @@
     gap: 8px;
 }
 
+/* Three tabs on a ~360 px drawer: they shrink first and wrap only when a label still does not fit. */
 .bfqig-settings .bfqig-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
 }
 
 .bfqig-settings .bfqig-tab {
     flex: 1 1 0;
+    min-width: 0;
     min-height: var(--bfqig-touch);
     margin: 0;
+    padding-left: 4px;
+    padding-right: 4px;
     justify-content: center;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
     opacity: 0.7;
 }
 
@@ -176,6 +184,62 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+/* Referenzen tab: upload form, then one row per picture (thumbnail, names, checkbox, delete). */
+.bfqig-settings .bfqig-references,
+.bfqig-settings .bfqig-ref-upload-form,
+.bfqig-settings .bfqig-ref-list,
+.bfqig-settings .bfqig-ref-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bfqig-settings .bfqig-ref-section[hidden],
+.bfqig-settings .bfqig-ref-item[hidden],
+.bfqig-settings #bfqig-ref-empty[hidden] {
+    display: none;
+}
+
+.bfqig-settings .bfqig-ref-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bfqig-settings .bfqig-ref-item .bfqig-ref-item-names {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.bfqig-settings .bfqig-ref-item .bfqig-check {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0 4px;
+}
+
+.bfqig-settings .bfqig-ref-thumb {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor);
+    cursor: pointer;
+}
+
+.bfqig-settings .bfqig-ref-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.bfqig-settings .bfqig-ref-delete {
+    color: var(--bfqig-danger);
 }
 
 /* Viewer: a modal <dialog> in the top layer; the user-agent dialog box styles are reset so it fills the screen. */

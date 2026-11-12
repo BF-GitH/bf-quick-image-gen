@@ -3,6 +3,7 @@
 import { ASPECT_IDS, DEFAULT_MODELS, PROVIDER_IDS, QUALITY_IDS } from '../shared/constants.js';
 import { DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS } from '../prompt/scene.js';
 import { GALLERY_LIMIT } from '../gallery/records.js';
+import { REFERENCE_LIMIT, normalizeNames } from '../references/select.js';
 
 const CONTEXT_MIN = 1;
 const CONTEXT_MAX = 20;
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     autoSaveDialog: false,
     parallelImage: false,
     gallery: Object.freeze([]),
+    references: Object.freeze([]),
 });
 
 function isObject(value) {
@@ -64,12 +66,30 @@ function normalizeInstruction(value) {
     return instruction;
 }
 
+function hasUrl(entry) {
+    return isObject(entry) && typeof entry.url === 'string' && entry.url !== '';
+}
+
+function normalizeGalleryEntry(entry) {
+    const copy = { ...entry };
+    if (copy.names !== undefined) copy.names = normalizeNames(copy.names);
+    if (copy.enabled !== undefined) copy.enabled = Boolean(copy.enabled);
+    return copy;
+}
+
 function normalizeGallery(value) {
     if (!Array.isArray(value)) return [];
-    return value
-        .filter((entry) => isObject(entry) && typeof entry.url === 'string' && entry.url !== '')
-        .map((entry) => ({ ...entry }))
-        .slice(0, GALLERY_LIMIT);
+    return value.filter(hasUrl).map(normalizeGalleryEntry).slice(0, GALLERY_LIMIT);
+}
+
+function normalizeReferences(value) {
+    if (!Array.isArray(value)) return [];
+    return value.filter(hasUrl).map((entry) => ({
+        url: entry.url,
+        names: normalizeNames(entry.names),
+        enabled: toBool(entry.enabled, true),
+        timestamp: typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp) ? entry.timestamp : 0,
+    })).slice(0, REFERENCE_LIMIT);
 }
 
 export function normalizeSettings(saved) {
@@ -88,6 +108,7 @@ export function normalizeSettings(saved) {
         autoSaveDialog: toBool(src.autoSaveDialog, DEFAULT_SETTINGS.autoSaveDialog),
         parallelImage: toBool(src.parallelImage, DEFAULT_SETTINGS.parallelImage),
         gallery: normalizeGallery(src.gallery),
+        references: normalizeReferences(src.references),
     };
 }
 

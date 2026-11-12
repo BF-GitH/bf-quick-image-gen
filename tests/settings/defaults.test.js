@@ -4,11 +4,13 @@ import { DEFAULT_SETTINGS, normalizeSettings, toggleFavorite } from '../../src/s
 import { DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS } from '../../src/prompt/scene.js';
 import { GALLERY_LIMIT } from '../../src/gallery/records.js';
 import { DEFAULT_MODELS } from '../../src/shared/constants.js';
+import { REFERENCE_LIMIT } from '../../src/references/select.js';
 
 const EXPECTED_DEFAULTS = {
     provider: 'nanogpt', keys: { nanogpt: '', openrouter: '' }, models: { ...DEFAULT_MODELS },
     favorites: { nanogpt: [], openrouter: [] }, instruction: DEFAULT_INSTRUCTION, aspect: '1:1', quality: 'standard',
     contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
+    references: [],
 };
 
 test('DEFAULT_SETTINGS matches the template and is frozen', () => {
@@ -42,17 +44,19 @@ test('normalizeSettings keeps valid values', () => {
         favorites: { nanogpt: ['x'], openrouter: ['y', 'z'] }, instruction: 'Malen', aspect: '16:9', quality: 'high',
         contextMessages: 12, styleSuffix: 'anime', useLlm: false, autoSaveDialog: true, parallelImage: true,
         gallery: [{ url: 'user/images/a.png', prompt: 'p' }],
+        references: [{ url: 'user/images/bfqig-references/r.jpg', names: ['Kyouko'], enabled: false, timestamp: 5 }],
     };
     const result = normalizeSettings(saved);
     assert.deepEqual(result, saved);
     assert.notEqual(result.gallery[0], saved.gallery[0]);
+    assert.notEqual(result.references[0], saved.references[0]);
 });
 
 test('normalizeSettings repairs garbage types', () => {
     const result = normalizeSettings({
         provider: 7, keys: 'nope', models: { nanogpt: 5, openrouter: null }, favorites: { nanogpt: 'x', openrouter: [1, 'a'] },
         instruction: { a: 1 }, aspect: 1, quality: [], contextMessages: 'viele', styleSuffix: 3, useLlm: 'yes',
-        autoSaveDialog: 1, parallelImage: 'true', gallery: 'list',
+        autoSaveDialog: 1, parallelImage: 'true', gallery: 'list', references: { url: 'x' },
     });
     assert.deepEqual(result, {
         ...EXPECTED_DEFAULTS,
@@ -94,10 +98,11 @@ test('normalizeSettings replaces an empty instruction and empty models with defa
     assert.deepEqual(result.models, { ...DEFAULT_MODELS });
 });
 
-test('normalizeSettings migrates the legacy default instructions (1.0 and 1.1) and keeps a customised one', () => {
-    assert.equal(LEGACY_DEFAULT_INSTRUCTIONS.length, 2);
+test('normalizeSettings migrates the legacy default instructions (1.0, 1.1 and 1.2) and keeps a customised one', () => {
+    assert.equal(LEGACY_DEFAULT_INSTRUCTIONS.length, 3);
     assert.ok(LEGACY_DEFAULT_INSTRUCTIONS[0].endsWith('and the current action from the latest messages.'));
     assert.ok(LEGACY_DEFAULT_INSTRUCTIONS[1].endsWith('the place where they are now, the lighting and the mood.'));
+    assert.ok(LEGACY_DEFAULT_INSTRUCTIONS[2].endsWith('seen through the eyes of {{user}}. {{user}} is not in the picture.'));
     for (const legacy of LEGACY_DEFAULT_INSTRUCTIONS) {
         assert.notEqual(legacy, DEFAULT_INSTRUCTION);
         assert.equal(normalizeSettings({ instruction: legacy }).instruction, DEFAULT_INSTRUCTION);
@@ -108,6 +113,38 @@ test('normalizeSettings migrates the legacy default instructions (1.0 and 1.1) a
     const custom11 = LEGACY_DEFAULT_INSTRUCTIONS[1].replace('the mood.', 'the mood. Watercolour.');
     assert.equal(normalizeSettings({ instruction: custom11 }).instruction, custom11);
     assert.equal(normalizeSettings({ instruction: 'Malen' }).instruction, 'Malen');
+});
+
+test('normalizeSettings validates references: url, names, enabled, timestamp, limit', () => {
+    const result = normalizeSettings({
+        references: [
+            { url: 'a.jpg', names: ' Kyouko , yuki, KYOUKO ', enabled: 'no', timestamp: 'x', extra: 1 },
+            { url: '' }, null, 'b.jpg', { names: ['x'] },
+            { url: 'c.jpg', names: ['Tooru'], enabled: false, timestamp: Infinity },
+        ],
+    });
+    assert.deepEqual(result.references, [
+        { url: 'a.jpg', names: ['Kyouko', 'yuki'], enabled: true, timestamp: 0 },
+        { url: 'c.jpg', names: ['Tooru'], enabled: false, timestamp: 0 },
+    ]);
+    const many = Array.from({ length: REFERENCE_LIMIT + 5 }, (_, i) => ({ url: `r${i}`, names: 'A' }));
+    assert.equal(normalizeSettings({ references: many }).references.length, REFERENCE_LIMIT);
+    assert.ok(Object.isFrozen(DEFAULT_SETTINGS.references));
+});
+
+test('normalizeSettings normalises names and coerces enabled on gallery entries only when present', () => {
+    const result = normalizeSettings({
+        gallery: [
+            { url: 'a.png', prompt: 'p' },
+            { url: 'b.png', names: 'Kyouko, Yuki, kyouko', enabled: 0 },
+            { url: 'c.png', names: 7, enabled: 'yes' },
+        ],
+    });
+    assert.deepEqual(result.gallery, [
+        { url: 'a.png', prompt: 'p' },
+        { url: 'b.png', names: ['Kyouko', 'Yuki'], enabled: false },
+        { url: 'c.png', names: [], enabled: true },
+    ]);
 });
 
 test('normalizeSettings coerces parallelImage to a boolean, default false', () => {
