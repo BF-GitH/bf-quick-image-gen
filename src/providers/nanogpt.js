@@ -12,21 +12,42 @@ export const GENERATE_URL = 'https://nano-gpt.com/api/v1/images';
 
 const DEFAULT_PROMPT_CHARS = 4000;
 const TIMEOUT_MS = 180000;
-// Edit-only, upscaler and background-removal entries need an input image, which we never send.
-const NON_GENERATIVE_RE = /(^|[/-])edit([/-]|$)|upscal|eras|remov|inpaint/i;
+// Edit-only, upscaler, background-removal, reference, layer and segmentation entries need an input image,
+// which we never send. Tagless entries (about a third of the list) can only be judged by their id.
+const NON_GENERATIVE_RE = /(^|[/-])edit([/-]|$)|upscal|eras|remov|inpaint|image-to-image|(^|[/-])vto([/-]|$)|reference|layeriz|layer-decomposition|sam3/i;
+const INPUT_IMAGE_TAGS = new Set([
+    'image-edit', 'image-to-image', 'img2img', 'segmentation', 'virtual-try-on', 'upscale',
+    'background-removal', 'depth-estimation', 'inpainting', 'outpainting', 'object-removal',
+]);
+// Vector models answer with SVG, which cannot be stored as a raster image.
+const VECTOR_TAGS = new Set(['svg', 'vector', 'text-to-vector']);
 
-function keepModel(model) {
-    return typeof model?.id === 'string'
-        && Array.isArray(model.architecture?.input_modalities)
-        && model.architecture.input_modalities.includes('text')
-        && model.capabilities?.image_generation !== false
-        && !NON_GENERATIVE_RE.test(model.id);
+function tagsOf(model) {
+    return Array.isArray(model.tags) ? model.tags.filter((tag) => typeof tag === 'string').map((tag) => tag.toLowerCase()) : [];
 }
 
-function minPrice(perImage) {
+function keepModel(model) {
+    if (typeof model?.id !== 'string') return false;
+    const tags = tagsOf(model);
+    // Dual-mode models tagged text-to-image also generate from text alone.
+    const needsInputImage = !tags.includes('text-to-image') && tags.some((tag) => INPUT_IMAGE_TAGS.has(tag));
+    const isVector = /vector/i.test(model.id) || tags.some((tag) => VECTOR_TAGS.has(tag));
+    return Array.isArray(model.architecture?.input_modalities)
+        && model.architecture.input_modalities.includes('text')
+        && model.capabilities?.image_generation !== false
+        && !NON_GENERATIVE_RE.test(model.id)
+        && !needsInputImage
+        && !isVector;
+}
+
+function numericPrices(perImage) {
     if (!perImage || typeof perImage !== 'object') return null;
-    const prices = Object.values(perImage).filter((value) => typeof value === 'number' && Number.isFinite(value));
-    return prices.length > 0 ? Math.min(...prices) : null;
+    const entries = Object.entries(perImage).filter(([, value]) => typeof value === 'number' && Number.isFinite(value));
+    return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+function minPrice(prices) {
+    return prices ? Math.min(...Object.values(prices)) : null;
 }
 
 function toModelInfo(model) {
@@ -34,12 +55,14 @@ function toModelInfo(model) {
         ? model.supported_parameters
         : {};
     const maxChars = supported.max_prompt_characters;
+    const prices = numericPrices(model.pricing?.per_image);
     return {
         id: model.id,
         name: typeof model.name === 'string' && model.name ? model.name : model.id,
         supported,
         maxPromptChars: typeof maxChars === 'number' && maxChars > 0 ? maxChars : null,
-        pricePerImage: minPrice(model.pricing?.per_image),
+        pricePerImage: minPrice(prices),
+        prices,
         nsfw: typeof model.capabilities?.nsfw === 'boolean' ? model.capabilities.nsfw : null,
     };
 }

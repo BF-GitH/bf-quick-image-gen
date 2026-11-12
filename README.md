@@ -52,6 +52,10 @@ Images are uploaded into the app's data folder (`user/images/<character>/`) and 
 Android does not let extensions write silently to the public Download folder: "Auf Gerät speichern" in the gallery
 opens the system save dialog, once per image (optionally after every image, see the gallery tab).
 
+Keep the app in the foreground until the image has arrived: TauriTavern's background service ends with the chat
+reply, so Android may pause the image request while the app is in the background. With TauriTavern's optional chat
+virtualization, scrolling can show blank rows while a reply is held back.
+
 ## Not verified
 
 - Calls against the real NanoGPT and OpenRouter APIs (tested only against the local mock server and recorded

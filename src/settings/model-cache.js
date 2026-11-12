@@ -3,11 +3,19 @@
 import { getProvider } from '../providers/index.js';
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+// The cache holds the filtered, normalized list. Bump this whenever the list filters or the ModelInfo shape
+// change, otherwise a list built by older code (wrong models, missing fields) stays in use for a week.
+const CACHE_VERSION = 2;
 const memory = new Map();
 const pending = new Map();
 
 function storageKey(providerId) {
-    return `bfqig_models_${providerId}`;
+    return `bfqig_models_v${CACHE_VERSION}_${providerId}`;
+}
+
+function dropLegacyCache(providerId) {
+    // Version 1 used an unversioned key; remove it so the old list does not keep occupying storage.
+    localStorage.removeItem(`bfqig_models_${providerId}`);
 }
 
 function readCache(providerId) {
@@ -22,6 +30,7 @@ function readCache(providerId) {
 
 function writeCache(providerId, models) {
     try {
+        dropLegacyCache(providerId);
         localStorage.setItem(storageKey(providerId), JSON.stringify({ timestamp: Date.now(), models }));
     } catch {
         // Quota or blocked storage: the memory cache still works for this session.

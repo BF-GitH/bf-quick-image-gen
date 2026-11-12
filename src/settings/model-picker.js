@@ -3,6 +3,7 @@
 import { getSettings, updateSettings } from './store.js';
 import { toggleFavorite } from './defaults.js';
 import { getModels } from './model-cache.js';
+import { getProvider } from '../providers/index.js';
 
 const TEXT = Object.freeze({
     filter: 'Modell suchen …',
@@ -29,8 +30,20 @@ function makeGroup(label, models) {
     return group;
 }
 
-function formatPrice(price) {
-    return `ca. ${price.toLocaleString('de-DE', { maximumFractionDigits: 6 })} $ pro Bild`;
+function formatPrice(prefix, price) {
+    return `${prefix} ${price.toLocaleString('de-DE', { maximumFractionDigits: 6 })} $ pro Bild`;
+}
+
+// Tiers can differ up to 16x in price, so look up the size the request would really send.
+function priceText(providerId, model) {
+    if (!model) return '';
+    if (model.prices) {
+        const { aspect, quality } = getSettings();
+        const { body } = getProvider(providerId).buildRequest({ model: model.id, prompt: '', aspect, quality, modelInfo: model });
+        const price = typeof body.resolution === 'string' ? model.prices[body.resolution] : undefined;
+        if (typeof price === 'number') return formatPrice('ca.', price);
+    }
+    return Number.isFinite(model.pricePerImage) ? formatPrice('ab', model.pricePerImage) : '';
 }
 
 export function createModelPicker({ onChange } = {}) {
@@ -89,8 +102,7 @@ export function createModelPicker({ onChange } = {}) {
     function render() {
         const model = renderOptions();
         renderFavorite();
-        const price = Number.isFinite(model?.pricePerImage) ? formatPrice(model.pricePerImage) : '';
-        info.textContent = loading ? TEXT.loading : (errorText || price);
+        info.textContent = loading ? TEXT.loading : (errorText || priceText(providerId, model));
         info.dataset.state = errorText && !loading ? 'error' : '';
         reload.disabled = loading;
     }
@@ -131,5 +143,6 @@ export function createModelPicker({ onChange } = {}) {
     reload.addEventListener('click', () => refresh(providerId, { force: true }));
 
     render();
-    return { element, refresh };
+    // Aspect and quality live outside the picker but change which price tier applies.
+    return { element, refresh, update: render };
 }

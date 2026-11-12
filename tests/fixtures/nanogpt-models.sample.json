@@ -832,6 +832,812 @@
       "category": "image",
       "supports_streaming": false,
       "endpoints": "/api/v1/images/models/topaz-transparent-upscale/endpoints"
+    },
+    {
+      "id": "ideogram/vector",
+      "object": "model",
+      "created": 1792627200,
+      "owned_by": "ideogram",
+      "name": "Ideogram Vector",
+      "description": "Ideogram Vector creates downloadable SVG graphics from text, with up to five opt",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1:1": 0.272,
+          "1:4": 0.272,
+          "1:3": 0.272,
+          "1:2": 0.272,
+          "9:16": 0.272,
+          "10:16": 0.272,
+          "2:3": 0.272,
+          "3:4": 0.272,
+          "4:5": 0.272,
+          "5:4": 0.272,
+          "4:3": 0.272,
+          "3:2": 0.272,
+          "16:10": 0.272,
+          "16:9": 0.272,
+          "2:1": 0.272,
+          "3:1": 0.272,
+          "4:1": 0.272,
+          "auto": 0.272
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": 9500,
+        "prompt_length": {
+          "status": "known",
+          "unit": "unicode_code_points",
+          "trim_whitespace": true
+        },
+        "resolutions": [
+          "auto",
+          "1:1",
+          "1:4",
+          "1:3",
+          "1:2",
+          "9:16",
+          "10:16",
+          "2:3",
+          "3:4",
+          "4:5",
+          "5:4",
+          "4:3",
+          "3:2",
+          "16:10",
+          "16:9",
+          "2:1",
+          "3:1",
+          "4:1"
+        ],
+        "max_images": 8,
+        "max_output_images": 8,
+        "max_input_images": 5,
+        "input_image_constraints": {
+          "max_items": 5,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          },
+          "provider": {
+            "max_bytes": 52428800,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "provider-docs",
+            "note": "Generation: up to 5 references, 10 MB each. Conversion: one image, 50 MB."
+          }
+        }
+      },
+      "icon_url": "/icons/Ideogram.svg",
+      "tags": [
+        "text-to-image",
+        "image-to-image",
+        "svg",
+        "vector",
+        "design",
+        "ideogram"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/ideogram/vector/endpoints"
+    },
+    {
+      "id": "recraft-ai/recraft-v4.1/text-to-vector",
+      "object": "model",
+      "created": 1778716800,
+      "owned_by": "recraft",
+      "name": "Recraft V4.1 Vector",
+      "description": "Recraft V4.1 Vector turns prompts into editable SVGs for logos, icons, and illus",
+      "architecture": {
+        "modality": "text->image",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1024x1024": 0.08,
+          "1024x768": 0.08,
+          "1024x576": 0.08,
+          "768x1024": 0.08,
+          "576x1024": 0.08
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": false,
+        "inpainting": false,
+        "nsfw": true
+      },
+      "supported_parameters": {
+        "max_prompt_characters": 10000,
+        "prompt_length": {
+          "status": "known",
+          "unit": "unicode_code_points",
+          "trim_whitespace": true
+        },
+        "resolutions": [
+          "1024x1024",
+          "1024x768",
+          "1024x576",
+          "768x1024",
+          "576x1024"
+        ],
+        "max_images": 8,
+        "max_output_images": 8
+      },
+      "icon_url": "/icons/Recraft.svg",
+      "tags": [
+        "text-to-vector",
+        "svg",
+        "recraft",
+        "typography",
+        "design",
+        "nsfw"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/recraft-ai/recraft-v4.1/text-to-vector/endpoints"
+    },
+    {
+      "id": "flux-dev-image-to-image",
+      "object": "model",
+      "created": 1704067200,
+      "owned_by": "flux",
+      "name": "Flux Dev",
+      "description": "Flux Dev: Next-gen image-to-image model for advanced creative edits and improvem",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "auto": 0.051,
+          "1024x1024": 0.051,
+          "1024x768": 0.051,
+          "1024x576": 0.051,
+          "768x1024": 0.051,
+          "576x1024": 0.051
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "auto"
+        ],
+        "max_images": 1,
+        "max_output_images": 1
+      },
+      "icon_url": "/icons/Flux.svg",
+      "tags": [
+        "img2img",
+        "image-to-image",
+        "image-edit"
+      ],
+      "category": "More",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/flux-dev-image-to-image/endpoints"
+    },
+    {
+      "id": "sam3-image",
+      "object": "model",
+      "created": 1788825600,
+      "owned_by": "meta",
+      "name": "SAM 3 Image Segmentation",
+      "description": "Describe an object or region to isolate it from an image. Return the segmented i",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "auto": 0.005
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "auto"
+        ],
+        "max_images": 1,
+        "max_output_images": 1
+      },
+      "icon_url": "/icons/Meta.svg",
+      "tags": [
+        "segmentation",
+        "mask",
+        "image-to-image"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/sam3-image/endpoints"
+    },
+    {
+      "id": "bria/virtual-try-on",
+      "object": "model",
+      "created": 1789689600,
+      "owned_by": "bria",
+      "name": "Bria Virtual Try-On",
+      "description": "Dress a person in one to three referenced garments or accessories while preservi",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1:1": 0.04,
+          "2:3": 0.04,
+          "3:2": 0.04,
+          "3:4": 0.04,
+          "4:3": 0.04,
+          "4:5": 0.04,
+          "5:4": 0.04,
+          "9:16": 0.04,
+          "16:9": 0.04,
+          "auto": 0.04
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "auto",
+          "1:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9"
+        ],
+        "max_images": 1,
+        "max_output_images": 1,
+        "max_input_images": 4,
+        "input_image_constraints": {
+          "max_items": 4,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/BriaAI.svg",
+      "tags": [
+        "image-edit",
+        "image-to-image",
+        "multi-reference",
+        "virtual-try-on",
+        "fashion",
+        "bria"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/bria/virtual-try-on/endpoints"
+    },
+    {
+      "id": "vidu-q2-reference",
+      "object": "model",
+      "created": 1764633600,
+      "owned_by": "vidu",
+      "name": "Vidu Q2 Reference",
+      "description": "Vidu Q2 Reference-to-Image generates images based on 1-7 reference images with c",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1080p": 0.04,
+          "2K": 0.06,
+          "4K": 0.1
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "1080p",
+          "2K",
+          "4K"
+        ],
+        "aspect_ratio": [
+          "auto",
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4",
+          "21:9",
+          "2:3",
+          "3:2"
+        ],
+        "max_images": 7,
+        "max_output_images": 7,
+        "max_input_images": 7,
+        "input_image_constraints": {
+          "max_items": 7,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/Vidu.svg",
+      "tags": [
+        "image-edit",
+        "4k",
+        "multi-reference"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/vidu-q2-reference/endpoints"
+    },
+    {
+      "id": "flux-pro/v1/vto",
+      "object": "model",
+      "created": 1779926400,
+      "owned_by": "flux",
+      "name": "FLUX Virtual Try-On",
+      "description": "Virtual try-on model that applies a garment reference image to a person image us",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "auto": 0.0575
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "auto"
+        ],
+        "max_images": 1,
+        "max_output_images": 1,
+        "max_input_images": 2,
+        "input_image_constraints": {
+          "max_items": 2,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          },
+          "provider": {
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "provider-docs",
+            "note": "Requires exactly two images: person first (max 2MP), garment second (max 1MP)."
+          }
+        },
+        "fixed_image_count": 1
+      },
+      "icon_url": "/icons/Flux.svg",
+      "tags": [
+        "image-edit",
+        "virtual-try-on"
+      ],
+      "category": "New",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/flux-pro/v1/vto/endpoints"
+    },
+    {
+      "id": "bytedance/seedream-v5.5/layer-decomposition",
+      "object": "model",
+      "created": 1793923200,
+      "owned_by": "doubao",
+      "name": "Seedream 5.5 Layer Decomposition",
+      "description": "Separate one image into a base image followed by transparent PNG layers. Add an ",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1k": 0.6,
+          "1.5k": 0.6,
+          "2k": 0.81,
+          "auto": 0.6
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "1k",
+          "1.5k",
+          "2k"
+        ],
+        "max_images": 1,
+        "max_output_images": 1,
+        "max_input_images": 1,
+        "input_image_constraints": {
+          "max_items": 1,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/Doubao.svg",
+      "tags": [
+        "image-edit"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/bytedance/seedream-v5.5/layer-decomposition/endpoints"
+    },
+    {
+      "id": "bytedance/seedream-v5.5",
+      "object": "model",
+      "created": 1793923200,
+      "owned_by": "doubao",
+      "name": "Seedream 5.5",
+      "description": "Seedream 5.5 by ByteDance generates images from text and edits images with up to",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1k": 0.02,
+          "1.5k": 0.02,
+          "2k": 0.035,
+          "auto": 0.02
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "1k",
+          "1.5k",
+          "2k"
+        ],
+        "aspect_ratio": [
+          "auto",
+          "1:1",
+          "1:2",
+          "2:1",
+          "1:3",
+          "3:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "9:21",
+          "21:9"
+        ],
+        "max_images": 4,
+        "max_output_images": 4,
+        "max_input_images": 10,
+        "input_image_constraints": {
+          "max_items": 10,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/Doubao.svg",
+      "tags": [
+        "text-to-image",
+        "image-edit"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/bytedance/seedream-v5.5/endpoints"
+    },
+    {
+      "id": "p-h3-image",
+      "object": "model",
+      "created": 1793836800,
+      "owned_by": "prunaai",
+      "name": "P-H3 Image",
+      "description": "P-H3 Image by Pruna AI generates and edits photorealistic images at 1K, 1.5K, 2K",
+      "architecture": {
+        "modality": "text+image->image",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "image"
+        ]
+      },
+      "pricing": {
+        "per_image": {
+          "1k": 0.02,
+          "1.5k": 0.03,
+          "2k": 0.04,
+          "3k": 0.08,
+          "4k": 0.12,
+          "auto": 0.02
+        },
+        "currency": "USD"
+      },
+      "capabilities": {
+        "image_generation": true,
+        "image_to_image": true,
+        "inpainting": false,
+        "nsfw": false
+      },
+      "supported_parameters": {
+        "max_prompt_characters": null,
+        "prompt_length": {
+          "status": "unknown",
+          "unit": null,
+          "trim_whitespace": null
+        },
+        "resolutions": [
+          "1k",
+          "1.5k",
+          "2k",
+          "3k",
+          "4k"
+        ],
+        "aspect_ratio": [
+          "auto",
+          "1:1",
+          "1:2",
+          "2:1",
+          "1:3",
+          "3:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "9:21",
+          "21:9"
+        ],
+        "max_images": 4,
+        "max_output_images": 4,
+        "max_input_images": 9,
+        "input_image_constraints": {
+          "max_items": 9,
+          "route": {
+            "min_width": 8,
+            "min_height": 8,
+            "max_width": 16384,
+            "max_height": 16384,
+            "max_bytes": 31457280,
+            "formats": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "source": "route-preflight",
+            "note": "NanoGPT route-level validation before provider submission."
+          }
+        }
+      },
+      "icon_url": "/icons/PrunaAI.svg",
+      "tags": [
+        "text-to-image",
+        "image-to-image",
+        "pruna",
+        "lora"
+      ],
+      "category": "image",
+      "supports_streaming": false,
+      "endpoints": "/api/v1/images/models/p-h3-image/endpoints"
     }
   ]
 }

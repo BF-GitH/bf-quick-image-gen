@@ -106,6 +106,8 @@ export function substituteMacros(text)       // ctx.substituteParams(text); on a
 export function timestampName()              // ctx.humanizedDateTime?.() or an ISO-like fallback; result contains only [A-Za-z0-9@_-]
 export const notify                          // { info, success, warning, error }: (message, { onClick, sticky } = {}) => void
 export async function confirmDialog(message) // ctx.callGenericPopup(message, ctx.POPUP_TYPE.CONFIRM); resolves true only on confirm
+export function adoptToasts(dialog)          // moves (or creates) #toast-container into an open dialog of ours, as the hosts do for their popups
+export function releaseToasts(dialog)        // moves a filled #toast-container back to body, removes an empty one
 ```
 `notify` wraps `toastr` with the title `BF Quick Image Gen`; `sticky` means no timeout; `onClick` maps to toastr `onclick`.
 
@@ -145,7 +147,9 @@ export async function uploadImage({ base64, extension, folder, fileName })  // -
 export async function deleteImage(path)                                      // -> boolean
 export async function saveToDevice(url, fileName)                            // fetch(url) -> blob -> object URL -> temporary <a download> click; revoke after 60 s. Throws on fetch failure.
 ```
-`fileName` for upload must not contain dots (the host derives the extension from `format`).
+`fileName` for upload must not contain dots (the host derives the extension from `format`). `uploadImage` replaces
+`#`, `%`, `?` and `&` in the folder name with `_` before sending it as `ch_name` (the host keeps them and returns the
+path unencoded, so a URL would be cut at them).
 
 ### 5.6 HOST: `src/host/llm.js`
 ```js
@@ -171,7 +175,7 @@ export class ProviderError extends Error     // constructor(message, { status = 
 export async function requestJson(url, { method = 'GET', headers, body, signal, timeoutMs = 180000, fetchImpl = fetch, provider = '' } = {})
 export async function fetchImageAsBase64(url, { signal, timeoutMs = 60000, fetchImpl = fetch } = {})   // -> { base64, mime }
 export function parseDataUrl(text)           // 'data:image/png;base64,AAAA' -> { base64, mime } | null
-export function sniffImageMime(base64)       // magic bytes -> 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; default 'image/png'
+export function sniffImageMime(base64)       // magic bytes -> 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' | 'image/svg+xml' (bytes start with "<svg" or "<?xml" after optional whitespace); default 'image/png'
 export function extensionForMime(mime)       // 'png' | 'jpg' | 'webp' | 'gif' (default 'png')
 export function arrayBufferToBase64(buffer)  // chunked String.fromCharCode + btoa
 ```
@@ -229,8 +233,9 @@ export async function listModels({ signal, fetchImpl } = {})            // GET M
 export function buildRequest({ model, prompt, aspect, quality, modelInfo })   // -> { url, body } (pure)
 export async function generateImage({ apiKey, model, prompt, aspect, quality, modelInfo, signal, fetchImpl })  // -> { base64, mime } | { remoteUrl }
 ```
-`ModelInfo = { id, name, supported, maxPromptChars, pricePerImage, nsfw }` (`supported` = raw `supported_parameters`
-or `{}`; `maxPromptChars` number or null; `pricePerImage` = smallest numeric USD price or null; `nsfw` boolean or null).
+`ModelInfo = { id, name, supported, maxPromptChars, pricePerImage, prices, nsfw }` (`supported` = raw `supported_parameters`
+or `{}`; `maxPromptChars` number or null; `prices` = the numeric entries of `pricing.per_image` keyed like the
+request's `resolution`, or null; `pricePerImage` = smallest value of `prices` or null; `nsfw` boolean or null).
 
 | | NanoGPT | OpenRouter |
 |---|---|---|
@@ -239,20 +244,24 @@ or `{}`; `maxPromptChars` number or null; `pricePerImage` = smallest numeric USD
 | `defaultModel` | `DEFAULT_MODELS.nanogpt` | `DEFAULT_MODELS.openrouter` |
 | `MODELS_URL` | `https://nano-gpt.com/api/v1/images/models` | `https://openrouter.ai/api/v1/images/models` |
 | `GENERATE_URL` | `https://nano-gpt.com/api/v1/images` | `https://openrouter.ai/api/v1/images` |
-| keep model if | `architecture.input_modalities` includes `text`, `capabilities.image_generation !== false`, id does not match `/(^|[\/-])edit([\/-]|$)|upscal|eras|remov|inpaint/i` | `architecture.output_modalities` includes `image` and `(supported_parameters.input_references?.min ?? 0) < 1` |
+| keep model if | `architecture.input_modalities` includes `text`, `capabilities.image_generation !== false`, id does not match `/(^|[\/-])edit([\/-]|$)|upscal|eras|remov|inpaint|image-to-image|(^|[\/-])vto([\/-]|$)|reference|layeriz|layer-decomposition|sam3/i`; not a vector model (`tags` contain `svg`, `vector` or `text-to-vector`, or id matches `/vector/i`); not an input-image model (`tags` contain any of `image-edit`, `image-to-image`, `img2img`, `segmentation`, `virtual-try-on`, `upscale`, `background-removal`, `depth-estimation`, `inpainting`, `outpainting`, `object-removal` and do not contain `text-to-image`) | `architecture.output_modalities` includes `image`, `(supported_parameters.input_references?.min ?? 0) < 1`, and `supported_parameters.output_format.values` is not a non-empty array consisting only of `svg` |
 | size fields | `selectNanoGptSize(modelInfo?.supported ?? {}, aspect, quality)` | `selectOpenRouterSize(...)` |
 | body | `{ model, prompt, n: 1, ...size }` | `{ model, prompt, ...size }` |
-| price | min of numeric `pricing.per_image` values | `null` |
+| price | `prices` = numeric `pricing.per_image` entries, `pricePerImage` = their min | both `null` |
 
 `buildRequest` truncates `prompt` to `modelInfo?.maxPromptChars ?? 4000` characters. Headers:
 `Authorization: Bearer <key>`, `Content-Type: application/json`. Timeout 180 s.
 Response: first entry of `data[]`: `b64_json` -> `{ base64, mime: media_type ?? sniffImageMime(base64) }`;
 `url` -> `parseDataUrl` if it is a data URL, else `fetchImageAsBase64`; if that download fails (for example CORS)
 return `{ remoteUrl: url }`. NanoGPT also accepts a top-level `image` (bare base64). No image at all:
-`ProviderError('<label>: Antwort enthält kein Bild')`. A missing `apiKey` throws `ProviderError('<label>: Kein API-Key')`.
+`ProviderError('<label>: Antwort enthält kein Bild')`. Every `{ base64, mime }` result must be raster: a mime other
+than `image/png`, `image/jpeg` (alias `image/jpg`), `image/webp` or `image/gif`, or bytes that sniff as
+`image/svg+xml`, throws `ProviderError('<label>: Bildformat wird nicht unterstützt (<mime>)')` with code
+`unsupported_format` (also after a successful download; the `remoteUrl` fallback is unchanged). A missing `apiKey` throws `ProviderError('<label>: Kein API-Key')`.
 
 Expected with the fixtures: NanoGPT keeps exactly `flux-schnell`, `z-image-turbo`, `qwen-image-3`, `nano-banana-2`,
-`grok-imagine-image`, `seedream-v4.5`; OpenRouter drops exactly `krea/k3-edit`.
+`grok-imagine-image`, `seedream-v4.5`, `bytedance/seedream-v5.5`, `p-h3-image`; OpenRouter drops exactly
+`krea/k3-edit` and `recraft/recraft-v4.1-vector`.
 
 ### 5.11 PURE: `src/providers/index.js`
 ```js
@@ -268,6 +277,8 @@ export function cleanMessageText(text)
 export function truncateText(text, maxChars)          // cuts at a word boundary when one is near; no ellipsis
 export function collectContext({ chatLength, replyIndex, recentCount, getSnapshot })  // -> { first: {name,text}|null, recent: [{name,text}] }
 export function buildSceneBlock({ first, recent })    // -> string
+export function fitContext({ first, recent }, budgetChars)  // -> { first, recent } whose scene block fits budgetChars
+export function directSceneBudget({ instruction, styleSuffix, maxChars = 1800 })  // -> chars left for the scene block of the direct prompt
 export function buildLlmRequest({ instruction, sceneBlock })   // -> { systemPrompt, prompt }
 export function buildDirectPrompt({ instruction, sceneBlock }) // -> string
 export function cleanLlmOutput(text)
@@ -296,6 +307,14 @@ chat is empty or the text is empty. `recent`: walk from `replyIndex` down to ind
 
 <name>: <text>
 ```
+`fitContext` trims the context so that `buildSceneBlock(result).length <= budgetChars` (headings and separators
+counted). Budget below 80 -> `{ first: null, recent: [] }`. The latest messages come first, newest first: the newest
+entry is always kept (cut to the room left if needed); older entries are added while they fit; an entry that does not
+fit completely is cut if at least 80 characters of text room remain, else it and everything older is dropped. With a
+first message the latest-messages section takes at most 60 % of the budget and the first message gets the rest (cut
+with `truncateText`); a first message that does not fit and would get fewer than 80 characters is dropped, and the
+latest messages are then fitted into the whole budget. Entries stay oldest first.
+`directSceneBudget` = `maxChars` minus the style suffix `finalizePrompt` appends, minus the instruction, minus `\n\n`.
 `buildLlmRequest`: `systemPrompt` = `You write prompts for an AI image generator. Do not continue the story and do not
 answer in character. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details,
 no dialogue, no explanations.`; `prompt` = `Task: <instruction>\n\n<sceneBlock>\n\nImage prompt:`.
@@ -316,7 +335,8 @@ disableStreamingOnce, onEvent(eventKey, handler) -> unsubscribe }`; `precheck: a
 user-facing message); `processReply: async (messageIndex, signal) => void`; `hold = { engage(userIndex), release(),
 setStatus(text | null, { onCancel, cancelLabel } = {}) }`; `notify = { warning(msg), error(msg) }`;
 `onFailure(messageIndex, error)` optional; `timers = { setTimeout, clearTimeout, setInterval, clearInterval }` default
-`globalThis`; `config = { startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000 }` defaults.
+`globalThis`; `config = { startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000,
+preRequestTimeoutMs: 30000 }` defaults.
 
 `start()`:
 1. Already active -> `notify.warning(MESSAGES.busy)`, false. No chat -> `MESSAGES.noChat`. Host generating ->
@@ -330,11 +350,15 @@ setStatus(text | null, { onCancel, cancelLabel } = {}) }`; `notify = { warning(m
 Events (subscribed once at creation through `host.onEvent`, removed by `dispose()`):
 - `GENERATION_STARTED (type, options, dryRun)`: ignore without a run, when `dryRun === true`, or `type === 'quiet'`.
   In phase `armed`: phase becomes `generating`, clear the start-timeout. In phase `imaging` (streaming leaves the
-  host UI unlocked): only `hold.release()`; the image job keeps running and the status bar stays.
+  host UI unlocked): only `hold.release()`; the image job keeps running and the status bar stays. In phase
+  `generating` (a follow-up generation of the same send, e.g. after a tool call): clear a pending grace timer and
+  reset the idle count.
 - `CHAT_COMPLETION_SETTINGS_READY`: when the phase is not `armed`, call and clear `restoreStreaming`.
-- `MESSAGE_SENT (index)`: while `armed`/`generating` and index is an integer: `userIndex = index`, `hold.engage(index)`.
+- `MESSAGE_SENT (index)`: while `armed`/`generating` and index is an integer: `userIndex = index`, `hold.engage(index)`,
+  and the run counts as having reached the request phase (see watchdog).
 - `MESSAGE_RECEIVED (index, type)`: ignore without a run, when already handled, when `type === 'first_message'`,
-  when `index <= userIndex`, or when the message is missing / `is_user` / `is_system`. Otherwise mark handled,
+  when `index <= userIndex`, when the message is missing / `is_user` / `is_system`, or when its trimmed `mes` is
+  empty or `...` (an empty tool-call turn; the run stays unhandled and waits for the real answer). Otherwise mark handled,
   phase `imaging`, clear timers, `hold.setStatus(MESSAGES.statusImage, { onCancel: cancel })`, then
   `processReply(index, abort.signal)`, raced against the abort signal and an imaging timeout of `imagingTimeoutMs`
   (set through `timers`, always cleared): the chat-model call inside `processReply` ignores the signal, so the
@@ -347,7 +371,11 @@ Events (subscribed once at creation through `host.onEvent`, removed by `dispose(
   `endedGraceMs`; when it fires and the run is still unhandled, finish. (Streaming emits ENDED before RECEIVED.)
 - `CHAT_CHANGED`: abort and finish.
 - Start-timeout fires in phase `armed`: `notify.warning(MESSAGES.notStarted)`, finish.
-- Watchdog tick: in phase `generating`, unhandled: count consecutive ticks with `!host.isGenerating()`; at 2, finish.
+- Watchdog tick: in phase `generating`, unhandled. `host.isGenerating()` true: the request phase is reached, reset the
+  idle count. Before the request phase was reached (generating flag never seen and no `MESSAGE_SENT` yet; the host
+  awaits listeners, a server ping and group setup before it sets the flag): add `watchdogMs` to the waited time; at
+  `preRequestTimeoutMs` `notify.warning(MESSAGES.notStarted)`, finish. Afterwards: count consecutive ticks with
+  `!host.isGenerating()`; at 2, finish.
 
 `cancel()`: abort; finish unless `imaging`. `finish()`: only for the current run; clear all timers, call
 `restoreStreaming` if still set, `hold.release()`, `hold.setStatus(null)`, clear the run.
@@ -360,7 +388,9 @@ each early-exit warning; start-timeout; chat change during imaging; ignored MESS
 quiet GENERATION_STARTED ignored; second `start()` while active; watchdog finish; streaming restored exactly once;
 cancel / CHAT_CHANGED / GENERATION_STOPPED during imaging with a `processReply` that never settles; imaging timeout;
 `processReply` rejecting after a cancel is silent; normal resolve clears the imaging timeout; a new generation during
-imaging only releases the hold.
+imaging only releases the hold; slow pre-request work (10 s without the generating flag) still yields the image;
+pre-request timeout; empty tool-call reply then real answer (job runs once, for the real answer); follow-up
+GENERATION_STARTED inside the grace time keeps the run; empty reply with nothing after ends through the grace path.
 
 ### 5.14 PURE: `src/gallery/records.js`
 ```js
@@ -394,16 +424,18 @@ export function updateSettings(patch)    // Object.assign onto the live object, 
 export async function resolveApiKey(provider)     // own key (settings.keys[provider.id], trimmed) -> readStoredKey(provider.secretKey) -> throws Error(MESSAGE for the state)
 export async function describeKeyState(provider)  // -> { state: 'own' | 'readable' | 'locked' | 'missing', message }
 // model-cache.js
-export async function getModels(providerId, { force = false } = {})  // memory, then localStorage 'bfqig_models_<id>' ({ timestamp, models }) if younger than 7 days, else provider.listModels(); on fetch failure return a stale cache if there is one, else throw
+export async function getModels(providerId, { force = false } = {})  // memory, then localStorage 'bfqig_models_v<CACHE_VERSION>_<id>' ({ timestamp, models }) if younger than 7 days, else provider.listModels(); on fetch failure return a stale cache if there is one, else throw. CACHE_VERSION is bumped whenever the list filters or the ModelInfo shape change (the cache stores the normalized list); the unversioned key of version 1 is removed on write
 export async function getModelInfo(providerId, modelId)              // -> ModelInfo | null, never throws
 ```
 
 ### 5.17 UI: `src/settings/model-picker.js`, `panel.js`
 ```js
-export function createModelPicker({ onChange })   // -> { element, refresh(providerId, { force } = {}) }
+export function createModelPicker({ onChange })   // -> { element, refresh(providerId, { force } = {}), update() }  (update re-renders the info line; the panel calls it on aspect/quality change)
 export async function mountSettingsPanel({ onTestImage })   // onTestImage: async () => ({ url, prompt })
 ```
 The panel is an ST `inline-drawer` appended to `#extensions_settings2` (fallback `#extensions_settings`).
+All content of `.inline-drawer-content` sits in one wrapper `<div class="bfqig-body">` that carries the flex column
+layout; `.inline-drawer-content` itself is never styled, because the host toggles its `display`.
 Use host classes for a native look (`menu_button`, `text_pole`, `checkbox_label`, `flex-container`).
 Ids (**BINDING**, used by the live test):
 
@@ -420,14 +452,22 @@ Ids (**BINDING**, used by the live test):
 | test button | `bfqig-test` |
 | gallery: auto-save checkbox, grid, empty note | `bfqig-auto-save`, `bfqig-gallery-grid`, `bfqig-gallery-empty` |
 | gallery item | class `bfqig-gallery-item` |
-| viewer overlay, save, delete, close | `bfqig-viewer`, `bfqig-viewer-save`, `bfqig-viewer-delete`, `bfqig-viewer-close` |
+| viewer dialog, save, delete, close | `bfqig-viewer`, `bfqig-viewer-save`, `bfqig-viewer-delete`, `bfqig-viewer-close` |
 
 Model select: `<optgroup label="★ Favoriten">` first (only if any), then `<optgroup label="Alle Modelle">`. A stored
 model that is not in the list stays selectable as `"<id> (nicht in der Liste)"`. The filter input narrows the
-options by substring. The star toggles the selected model in `favorites[provider]`. Info line: price for NanoGPT
-(`ca. 0,0085 $ pro Bild`), else empty. Model list load failure: show the message in the info line, keep the stored model.
+options by substring. The star toggles the selected model in `favorites[provider]`. Info line: the price of the size the request
+would send: `prices[buildRequest(current aspect, quality).body.resolution]` as `ca. 0,0085 $ pro Bild`; if that is
+not a number but `pricePerImage` is, `ab <min> $ pro Bild`; else empty. Model list load failure: show the message in the info line, keep the stored model.
 Every input writes through `updateSettings` on `change`/`input`. Switching the provider refreshes key status and models.
-The viewer overlay carries `data-tt-mobile-surface="fullscreen-window"` and respects `env(safe-area-inset-*)`.
+The viewer is a native `<dialog id="bfqig-viewer">` opened with `showModal()` (fallback `show()`). Every closing path
+(close button, backdrop tap, Escape, the host's Android back handling, which closes the topmost `dialog[open]`) goes
+through `close()`. Cleanup (give the toast container back with `releaseToasts`, remove the node) runs once: at once
+for our own close paths, and from the `close` event for Escape and the host's `close()` (the browser fires that event
+only with the next animation frame, so it must not be the only trigger). After opening, `adoptToasts(dialog)` puts the
+toast container into the dialog, because a modal dialog covers toasts that stay in `body`. Opening a second viewer
+closes the first. It stops propagation of `mousedown` and `touchstart` so the host's html-level handler does not
+collapse the Extensions drawer behind it, and respects `env(safe-area-inset-*)`.
 
 ### 5.18 UI: `src/gallery/store.js`, `view.js`
 ```js
@@ -458,7 +498,8 @@ appended to `#extensionsMenu`. The host closes the menu itself.
 `#chat .mes[mesid="<userIndex>"] ~ .mes { display: none !important; }` (replace the rule on repeated calls).
 `release()` removes it. `setStatus(text, { onCancel, cancelLabel })`: a bar `#bfqig-status` (spinner icon, text, and a
 button `#bfqig-status-cancel` labelled `cancelLabel`, default "Text sofort zeigen", only when `onCancel` is given) inserted directly before
-`#send_form` (fallback: appended to `document.body`); `null` removes it.
+`#send_form` (fallback: appended to `document.body`); `null` removes it. The bar sets `white-space: normal` (its parent
+`#form_sheld` uses `nowrap`); the cancel button keeps `nowrap`.
 
 ### 5.20 WIRING: `src/prompt/build.js`
 ```js
@@ -466,7 +507,10 @@ export async function buildImagePrompt({ replyIndex, settings, maxPromptChars })
 ```
 `collectContext` (snapshots from `host/chat.js`) -> `buildSceneBlock` -> instruction through `substituteMacros`.
 With `settings.useLlm`: `generateText(buildLlmRequest(...))` -> `cleanLlmOutput`; if that throws or is empty, log a
-warning and fall back to `buildDirectPrompt`. Always finish with `finalizePrompt`.
+warning and fall back to `buildDirectPrompt`. The chat-model request uses the untrimmed context; the direct prompt
+uses `buildSceneBlock(fitContext(context, directSceneBudget({ instruction, styleSuffix, maxChars: maxPromptChars })))`,
+because `finalizePrompt` cuts from the end and a long first message would otherwise push out the latest messages.
+Always finish with `finalizePrompt` (last guard).
 
 ### 5.21 WIRING: `src/flow/generate-image.js`
 ```js
@@ -475,11 +519,15 @@ export async function generateImageForMessage(messageIndex, { signal, saveBefore
 export async function generateTestImage({ signal } = {})                     // -> { url, prompt }
 ```
 `generateImageForMessage` steps, checking `signal.aborted` after every await (throw a `DOMException` `AbortError`):
-settings -> provider -> model (`settings.models[id] || provider.defaultModel`) -> `resolveApiKey` ->
+capture the live message object (`getRawMessage`; missing -> `Error('Die Nachricht ist nicht mehr vorhanden.')`), its
+`swipe_id` and `getChatId()` -> settings -> provider -> model (`settings.models[id] || provider.defaultModel`) -> `resolveApiKey` ->
 `saveBefore ? saveChat()` -> `getModelInfo` -> `buildImagePrompt` (`maxPromptChars = min(modelInfo?.maxPromptChars ?? 1800, 4000)`)
 -> `provider.generateImage` -> if `remoteUrl`: use it as url and `notify.warning(...)`; else `uploadImage` with
 `extensionForMime(mime)`, `folder: getImageFolderName()`, `fileName: 'bfqig_' + timestampName()` (aborted right after
 the upload: `deleteImage(url)` without awaiting, then the `AbortError`, so no orphaned file stays) ->
+verify that `getRawMessage(index)` is still the captured object with the same `swipe_id` and that `getChatId()` is
+unchanged (the host UI can be unlocked during retry and streaming); on mismatch `deleteImage(url)` without awaiting
+(uploaded files only, not a remote url), no gallery record, `Error('Die Nachricht ist nicht mehr vorhanden.')` ->
 `attachImageToMessage` (false -> `Error('Die Nachricht ist nicht mehr vorhanden.')`) -> `addGalleryRecord` ->
 `saveAfterAttach ? saveChat()` -> if `settings.autoSaveDialog` and not remote: `saveToDevice(url, 'tauri_<ts>.<ext>')`
 without awaiting (log failures).
@@ -497,7 +545,8 @@ Builds the controller with: host functions from `src/host`, `precheck = checkCon
 `retry`: refuse while the controller is active or the host generates, or when the chat id or the message object
 changed since the failure; otherwise show the status bar (cancel button labelled `Abbrechen`, the text is already
 visible) and run
-`generateImageForMessage(index, { signal, saveAfterAttach: true })`; failures show the same toast again.
+`generateImageForMessage(index, { signal, saveAfterAttach: true })`; failures show the same toast again. Changes
+to the message while the retry runs are caught by the identity check in `generateImageForMessage` (section 5.21).
 `index.js`: `whenHostReady()` -> `repairStreamingFlag()` -> `getSettings()` -> `initSendWithImage()` ->
 `mountSettingsPanel({ onTestImage: generateTestImage })` -> `addWandEntry({ onClick: () => flow.start() })`;
 a failing init is logged with `LOG_PREFIX` and never throws.
@@ -534,7 +583,7 @@ a failing init is logged with `LOG_PREFIX` and never throws.
 | `MESSAGES.emptyText` | `Bitte zuerst Text ins Nachrichtenfeld schreiben.` |
 | `MESSAGES.slash` | `Slash-Befehle bitte normal senden.` |
 | `MESSAGES.noSendButton` | `Senden-Knopf nicht gefunden.` |
-| `MESSAGES.notStarted` | `Senden wurde nicht gestartet.` |
+| `MESSAGES.notStarted` | `Senden wurde nicht gestartet.` (start-timeout and pre-request timeout) |
 | `MESSAGES.statusReply` | `Antwort wird erstellt …` |
 | `MESSAGES.statusImage` | `Bild wird generiert …` |
 | `MESSAGES.imageTimeout` | `Zeitüberschreitung bei der Bilderstellung.` |

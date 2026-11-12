@@ -5,7 +5,8 @@
     --bfqig-touch: 40px;
 }
 
-.bfqig-settings .bfqig-content {
+/* Never style .inline-drawer-content itself: the host toggles its display to open and close the drawer. */
+.bfqig-settings .bfqig-body {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -176,18 +177,34 @@
     object-fit: cover;
 }
 
-/* Viewer: full screen on phones; TauriTavern's mobile surface attribute keeps it above its own chrome. */
+/* Viewer: a modal <dialog> in the top layer; the user-agent dialog box styles are reset so it fills the screen. */
 .bfqig-viewer {
     position: fixed;
     inset: 0;
     z-index: 10000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border: none;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    color: var(--SmartThemeBodyColor);
     background: var(--SmartThemeBlurTintColor);
     backdrop-filter: blur(8px);
     box-sizing: border-box;
+}
+
+/* Only the open state is laid out, so a closed dialog stays hidden. */
+.bfqig-viewer[open] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bfqig-viewer::backdrop {
+    background: transparent;
 }
 
 .bfqig-viewer .bfqig-viewer-panel {
@@ -251,6 +268,8 @@
     background: var(--SmartThemeBlurTintColor);
     color: var(--SmartThemeBodyColor);
     box-sizing: border-box;
+    /* #form_sheld sets nowrap, which would push the text into the cancel button on narrow phones. */
+    white-space: normal;
 }
 
 .bfqig-status .bfqig-status-text {

@@ -2,7 +2,7 @@
 
 import { LOG_PREFIX } from '../shared/constants.js';
 import { extensionForMime } from '../providers/http.js';
-import { notify, confirmDialog, timestampName } from '../host/st.js';
+import { notify, confirmDialog, timestampName, adoptToasts, releaseToasts } from '../host/st.js';
 import { deleteImage, saveToDevice } from '../host/images.js';
 import { detachImageFromChat, saveChat } from '../host/chat.js';
 import { listRecords, removeGalleryRecord, onGalleryChange } from './store.js';
@@ -39,12 +39,12 @@ function iconButton(id, icon, label) {
     return button;
 }
 
+let closeActiveViewer = null;
+
 export function openImageViewer(record) {
-    document.getElementById('bfqig-viewer')?.remove();
-    const overlay = el('div', { id: 'bfqig-viewer', className: 'bfqig-viewer' });
-    overlay.dataset.ttMobileSurface = 'fullscreen-window';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
+    closeActiveViewer?.();
+    // A native modal dialog, because TauriTavern's Android back handler only closes 'dialog[open]' elements.
+    const overlay = el('dialog', { id: 'bfqig-viewer', className: 'bfqig-viewer' });
 
     const panel = el('div', { className: 'bfqig-viewer-panel' });
     const image = el('img', { className: 'bfqig-viewer-image', src: record.url, alt: String(record.prompt ?? '') });
@@ -59,14 +59,29 @@ export function openImageViewer(record) {
     panel.append(image, prompt, details, actions);
     overlay.append(panel);
 
-    const onKey = (event) => {
-        if (event.key === 'Escape') closeViewer();
-    };
-    function closeViewer() {
-        document.removeEventListener('keydown', onKey);
+    let cleaned = false;
+    function cleanup() {
+        if (cleaned) return;
+        cleaned = true;
+        if (closeActiveViewer === closeViewer) closeActiveViewer = null;
+        // Toasts live inside the open dialog (see adoptToasts); removing them with us would hide live ones.
+        releaseToasts(overlay);
         overlay.remove();
     }
+    // Escape and the host's back handler call close() themselves. The browser delivers that event only with
+    // the next animation frame, so our own close paths clean up at once instead of waiting for it.
+    overlay.addEventListener('close', cleanup);
+    function closeViewer() {
+        if (overlay.open) overlay.close();
+        cleanup();
+    }
+    closeActiveViewer = closeViewer;
 
+    // The host closes open drawers on html-level mousedown/touchstart outside them; the overlay lives in body,
+    // so without this every tap in the viewer would collapse the Extensions drawer behind it.
+    const stop = (event) => event.stopPropagation();
+    overlay.addEventListener('mousedown', stop);
+    overlay.addEventListener('touchstart', stop, { passive: true });
     overlay.addEventListener('click', (event) => {
         if (event.target === overlay) closeViewer();
     });
@@ -96,8 +111,14 @@ export function openImageViewer(record) {
         }
     });
 
-    document.addEventListener('keydown', onKey);
     document.body.append(overlay);
+    try {
+        overlay.showModal();
+    } catch (error) {
+        console.warn(LOG_PREFIX, 'showModal failed, opening non-modal', error);
+        overlay.show();
+    }
+    adoptToasts(overlay);
     close.focus();
 }
 

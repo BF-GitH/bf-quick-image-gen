@@ -123,6 +123,28 @@ export const notify = Object.freeze({
     error: (message, options) => toast('error', message, options),
 });
 
+// A modal dialog sits in the browser's top layer, above every toast in <body>. The hosts solve this for their
+// own popups by moving the toast container into the topmost open dialog (fixToastrForDialogs in popup.js);
+// a dialog of ours has to do the same or its toasts appear behind it.
+export function adoptToasts(dialog) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        const position = globalThis.toastr?.options?.positionClass;
+        if (position) container.classList.add(position);
+    }
+    dialog.append(container);
+}
+
+export function releaseToasts(dialog) {
+    const container = dialog.querySelector('#toast-container');
+    if (!container) return;
+    // An empty container is recreated by toastr on demand; a filled one must stay visible.
+    if (container.childNodes.length > 0) document.body.append(container);
+    else container.remove();
+}
+
 export async function confirmDialog(message) {
     const ctx = getContext();
     const result = await ctx.callGenericPopup(message, ctx.POPUP_TYPE.CONFIRM);

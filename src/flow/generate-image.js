@@ -9,8 +9,8 @@ import { getSettings } from '../settings/store.js';
 import { resolveApiKey } from '../settings/keys.js';
 import { getModelInfo } from '../settings/model-cache.js';
 import { addGalleryRecord } from '../gallery/store.js';
-import { notify, timestampName } from '../host/st.js';
-import { attachImageToMessage, getImageFolderName, saveChat } from '../host/chat.js';
+import { getChatId, notify, timestampName } from '../host/st.js';
+import { attachImageToMessage, getImageFolderName, getRawMessage, saveChat } from '../host/chat.js';
 import { uploadImage, saveToDevice, deleteImage } from '../host/images.js';
 
 const TEST_PROMPT = 'A cozy fantasy tavern interior at night, warm lantern light, wooden beams, detailed illustration';
@@ -77,8 +77,22 @@ export async function checkConfiguration() {
     await resolveApiKey(provider);
 }
 
+// While the job runs the host UI can be unlocked (retry, streaming): the user may delete, swipe or switch chats,
+// and the index would then name another message. Only the exact message, swipe and chat may get the image.
+function captureMessage(messageIndex) {
+    const message = getRawMessage(messageIndex);
+    if (!message) throw new Error(MESSAGE_GONE);
+    return { message, swipeId: message.swipe_id, chatId: getChatId() };
+}
+
+function isSameMessage(messageIndex, captured) {
+    const message = getRawMessage(messageIndex);
+    return message === captured.message && message.swipe_id === captured.swipeId && getChatId() === captured.chatId;
+}
+
 export async function generateImageForMessage(messageIndex, { signal, saveBefore = false, saveAfterAttach = false } = {}) {
     throwIfAborted(signal);
+    const captured = captureMessage(messageIndex);
     const target = await resolveTarget(signal);
     if (saveBefore) {
         await saveChat();
@@ -97,6 +111,11 @@ export async function generateImageForMessage(messageIndex, { signal, saveBefore
     const ts = timestampName();
     const { url, extension } = await produceImage({ target, modelInfo, prompt, folder, ts, signal });
 
+    if (!isSameMessage(messageIndex, captured)) {
+        // Only an uploaded file is ours to remove; deleteImage never throws, so no await needed.
+        if (extension) deleteImage(url);
+        throw new Error(MESSAGE_GONE);
+    }
     if (!attachImageToMessage(messageIndex, { url, title: prompt })) throw new Error(MESSAGE_GONE);
     record({ url, prompt, target, character: folder });
     if (saveAfterAttach) {

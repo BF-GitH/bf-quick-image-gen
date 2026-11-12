@@ -24,7 +24,8 @@ const MARKUP = `
     <b>BF Quick Image Gen</b>
     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
   </div>
-  <div class="inline-drawer-content bfqig-content">
+  <div class="inline-drawer-content">
+   <div class="bfqig-body">
     <div class="bfqig-tabs" role="tablist">
       <button type="button" id="bfqig-tab-settings" class="menu_button bfqig-tab" role="tab" aria-controls="bfqig-pane-settings">Einstellungen</button>
       <button type="button" id="bfqig-tab-gallery" class="menu_button bfqig-tab" role="tab" aria-controls="bfqig-pane-gallery">Galerie</button>
@@ -68,6 +69,7 @@ const MARKUP = `
       <div class="bfqig-note">Bilder liegen im Datenordner der App (user/images). Android lässt Erweiterungen nicht still in den Download-Ordner schreiben: „Auf Gerät speichern“ öffnet den System-Dialog, dort z. B. Download/tauri wählen.</div>
       <div class="bfqig-gallery-slot"></div>
     </div>
+   </div>
   </div>
 </div>`;
 
@@ -184,8 +186,14 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
         instruction.value = DEFAULT_INSTRUCTION;
         updateSettings({ instruction: DEFAULT_INSTRUCTION });
     });
-    aspect.addEventListener('change', () => updateSettings({ aspect: aspect.value }));
-    quality.addEventListener('change', () => updateSettings({ quality: quality.value }));
+    aspect.addEventListener('change', () => {
+        updateSettings({ aspect: aspect.value });
+        picker.update();
+    });
+    quality.addEventListener('change', () => {
+        updateSettings({ quality: quality.value });
+        picker.update();
+    });
     context.addEventListener('change', () => {
         const parsed = Math.round(Number(context.value));
         const value = Number.isFinite(parsed) ? Math.min(20, Math.max(1, parsed)) : getSettings().contextMessages;

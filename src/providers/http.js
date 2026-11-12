@@ -144,10 +144,12 @@ function startsWith(bytes, signature, offset = 0) {
 export function sniffImageMime(base64) {
     let bytes;
     try {
-        bytes = atob(String(base64 ?? '').replace(/\s+/g, '').slice(0, 16));
+        // 344 base64 chars = 258 bytes: enough to find "<svg" behind leading whitespace or a short preamble.
+        bytes = atob(String(base64 ?? '').replace(/\s+/g, '').slice(0, 344));
     } catch {
         return 'image/png';
     }
+    if (/^\s*<(svg|\?xml)/i.test(bytes)) return 'image/svg+xml';
     if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47])) return 'image/png';
     if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
     if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return 'image/gif';
@@ -174,29 +176,41 @@ export function arrayBufferToBase64(buffer) {
     return btoa(binary);
 }
 
+const RASTER_MIMES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+
+// The upload stores bytes under a raster extension, so SVG or anything else would become a broken file.
+function ensureRaster(result, label) {
+    const type = String(result.mime ?? '').toLowerCase().split(';')[0].trim();
+    if (RASTER_MIMES.has(type) && sniffImageMime(result.base64) !== 'image/svg+xml') return result;
+    const shown = RASTER_MIMES.has(type) ? 'image/svg+xml' : type || 'unbekannt';
+    throw new ProviderError(`${label}: Bildformat wird nicht unterstützt (${shown})`, { provider: label, code: 'unsupported_format' });
+}
+
 // Shared response handling for both image APIs (spec 5.10 "Response").
 export async function extractImage(json, { label, allowTopLevelImage = false, signal, fetchImpl = fetch }) {
     const entry = Array.isArray(json?.data) ? json.data[0] : undefined;
     if (typeof entry?.b64_json === 'string' && entry.b64_json) {
         const base64 = entry.b64_json.replace(/\s+/g, '');
-        return { base64, mime: entry.media_type ?? sniffImageMime(base64) };
+        return ensureRaster({ base64, mime: entry.media_type ?? sniffImageMime(base64) }, label);
     }
     if (typeof entry?.url === 'string' && entry.url) {
         const inline = parseDataUrl(entry.url);
-        if (inline) return inline;
+        if (inline) return ensureRaster(inline, label);
+        let downloaded;
         try {
-            return await fetchImageAsBase64(entry.url, { signal, fetchImpl });
+            downloaded = await fetchImageAsBase64(entry.url, { signal, fetchImpl });
         } catch (error) {
             if (error?.name === 'AbortError') throw error;
             // Typically CORS on the signed storage host: the image still exists, so hand out the link.
             return { remoteUrl: entry.url };
         }
+        return ensureRaster(downloaded, label);
     }
     if (allowTopLevelImage && typeof json?.image === 'string' && json.image) {
         const inline = parseDataUrl(json.image);
-        if (inline) return inline;
+        if (inline) return ensureRaster(inline, label);
         const base64 = json.image.replace(/\s+/g, '');
-        return { base64, mime: sniffImageMime(base64) };
+        return ensureRaster({ base64, mime: sniffImageMime(base64) }, label);
     }
     throw new ProviderError(`${label}: Antwort enthält kein Bild`, { provider: label, code: 'no_image' });
 }

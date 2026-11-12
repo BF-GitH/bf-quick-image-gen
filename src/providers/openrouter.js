@@ -13,12 +13,19 @@ export const GENERATE_URL = 'https://openrouter.ai/api/v1/images';
 const DEFAULT_PROMPT_CHARS = 4000;
 const TIMEOUT_MS = 180000;
 
+// SVG-only models cannot be stored as a raster image.
+function isVectorOnly(model) {
+    const formats = model.supported_parameters?.output_format?.values;
+    return Array.isArray(formats) && formats.length > 0 && formats.every((value) => value === 'svg');
+}
+
 // Models that require at least one reference image cannot do plain text-to-image.
 function keepModel(model) {
     return typeof model?.id === 'string'
         && Array.isArray(model.architecture?.output_modalities)
         && model.architecture.output_modalities.includes('image')
-        && (model.supported_parameters?.input_references?.min ?? 0) < 1;
+        && (model.supported_parameters?.input_references?.min ?? 0) < 1
+        && !isVectorOnly(model);
 }
 
 function toModelInfo(model) {
@@ -31,6 +38,7 @@ function toModelInfo(model) {
         supported,
         maxPromptChars: null,
         pricePerImage: null,
+        prices: null,
         nsfw: null,
     };
 }

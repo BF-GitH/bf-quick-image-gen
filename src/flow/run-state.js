@@ -17,7 +17,7 @@ export const MESSAGES = Object.freeze({
 });
 
 const DEFAULT_CONFIG = Object.freeze({
-    startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000,
+    startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000, preRequestTimeoutMs: 30000,
 });
 // One idle tick can be the gap between two host phases; two in a row mean the host is done.
 const IDLE_TICKS_TO_FINISH = 2;
@@ -68,8 +68,17 @@ export function createSendWithImageController({
 
     function onWatchdogTick(r) {
         if (run !== r || r.phase !== 'generating' || r.handled) return;
-        r.idleTicks = host.isGenerating() ? 0 : r.idleTicks + 1;
-        if (r.idleTicks >= IDLE_TICKS_TO_FINISH) finish(r);
+        if (host.isGenerating()) {
+            r.requestSeen = true;
+            r.idleTicks = 0;
+        } else if (r.requestSeen) {
+            r.idleTicks += 1;
+            if (r.idleTicks >= IDLE_TICKS_TO_FINISH) finish(r);
+        } else if ((r.preRequestMs += cfg.watchdogMs) >= cfg.preRequestTimeoutMs) {
+            // Host pre-request work (listeners, server ping, group setup) ran out of time without a request.
+            notify.warning(MESSAGES.notStarted);
+            finish(r);
+        }
     }
 
     function onGenerationStarted(type, _options, dryRun) {
@@ -79,6 +88,12 @@ export function createSendWithImageController({
         if (r.phase === 'imaging') {
             hold.release();
             return;
+        }
+        // A follow-up generation of the same send (tool calls) keeps the run alive.
+        if (r.phase === 'generating') {
+            if (r.graceTimer !== null) timers.clearTimeout(r.graceTimer);
+            r.graceTimer = null;
+            r.idleTicks = 0;
         }
         if (r.phase !== 'armed') return;
         r.phase = 'generating';
@@ -96,6 +111,7 @@ export function createSendWithImageController({
         const r = run;
         if (!r || (r.phase !== 'armed' && r.phase !== 'generating') || !Number.isInteger(index)) return;
         r.userIndex = index;
+        r.requestSeen = true;
         hold.engage(index);
     }
 
@@ -105,6 +121,9 @@ export function createSendWithImageController({
         if (!Number.isInteger(index) || index <= r.userIndex) return undefined;
         const message = host.getRawMessage(index);
         if (!message || message.is_user || message.is_system) return undefined;
+        // An empty tool-call turn comes first; the real answer follows from a recursive generation.
+        const text = String(message.mes ?? '').trim();
+        if (!text || text === '...') return undefined;
         r.handled = true;
         r.phase = 'imaging';
         clearTimers(r);
@@ -230,6 +249,8 @@ export function createSendWithImageController({
             watchdog: null,
             imagingTimer: null,
             idleTicks: 0,
+            requestSeen: false, // idle ticks only mean "done" once the host reached its request phase
+            preRequestMs: 0,
         };
         run = r;
         r.restoreStreaming = host.disableStreamingOnce() ?? null;

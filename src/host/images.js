@@ -11,7 +11,8 @@ export async function uploadImage({ base64, extension, folder, fileName }) {
     const response = await postApi('/api/images/upload', {
         image: base64,
         format: extension,
-        ch_name: folder,
+        // The host keeps these in the folder name and returns the path unencoded, so a URL would be cut at them.
+        ch_name: String(folder ?? '').replace(/[#%?&]/g, '_'),
         filename,
     });
     if (!response.ok) {

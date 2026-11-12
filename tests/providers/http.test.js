@@ -24,6 +24,8 @@ test('sniffImageMime recognises magic bytes', () => {
     assert.equal(sniffImageMime(WEBP), 'image/webp');
     assert.equal(sniffImageMime(b64([1, 2, 3, 4, 5, 6])), 'image/png');
     assert.equal(sniffImageMime('!!not base64!!'), 'image/png');
+    assert.equal(sniffImageMime(b64([...Buffer.from(' \r\n\t<svg xmlns="http://www.w3.org/2000/svg"/>')])), 'image/svg+xml');
+    assert.equal(sniffImageMime(b64([...Buffer.from('<?xml version="1.0"?><svg/>')])), 'image/svg+xml');
 });
 
 test('extensionForMime', () => {

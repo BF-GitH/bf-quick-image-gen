@@ -31,8 +31,11 @@ function fakeFetch(routes) {
 }
 
 test('NanoGPT normalizeModels keeps exactly the text-to-image models, sorted by name', () => {
+    // Dropped: input-image models (edit, reference, try-on, segmentation, layers, depth, cutout, upscale)
+    // and vector models; kept: dual-mode models tagged text-to-image.
     assert.deepEqual(NANO.map((m) => m.id).sort(), [
-        'flux-schnell', 'grok-imagine-image', 'nano-banana-2', 'qwen-image-3', 'seedream-v4.5', 'z-image-turbo',
+        'bytedance/seedream-v5.5', 'flux-schnell', 'grok-imagine-image', 'nano-banana-2', 'p-h3-image', 'qwen-image-3',
+        'seedream-v4.5', 'z-image-turbo',
     ]);
     const names = NANO.map((m) => m.name);
     assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)));
@@ -42,19 +45,39 @@ test('NanoGPT normalizeModels keeps exactly the text-to-image models, sorted by 
         supported: NANO_JSON.data[0].supported_parameters,
         maxPromptChars: 3000,
         pricePerImage: 0.0085,
+        prices: NANO_JSON.data[0].pricing.per_image,
         nsfw: false,
     });
     assert.equal(nanoInfo('nano-banana-2').maxPromptChars, null);
     assert.equal(nanoInfo('nano-banana-2').pricePerImage, 0.08);
+    assert.deepEqual(nanoInfo('nano-banana-2').prices, { '1k': 0.08, '2k': 0.12, '4k': 0.16 });
     assert.equal(nanoInfo('seedream-v4.5').nsfw, true);
 });
 
-test('OpenRouter normalizeModels drops exactly krea/k3-edit', () => {
+test('NanoGPT prices keep only numeric entries, null without any', () => {
+    const model = (perImage) => ({ id: 'm', architecture: { input_modalities: ['text'] }, pricing: { per_image: perImage } });
+    const [mixed] = nanogpt.normalizeModels([model({ '1k': 0.02, '2k': '0.04', auto: null, '4k': 0.1 })]);
+    assert.deepEqual(mixed.prices, { '1k': 0.02, '4k': 0.1 });
+    assert.equal(mixed.pricePerImage, 0.02);
+    const [none] = nanogpt.normalizeModels([model({ auto: 'free' })]);
+    assert.equal(none.prices, null);
+    assert.equal(none.pricePerImage, null);
+});
+
+test('NanoGPT drops tagless models by id and vector models by id', () => {
+    const model = (id) => ({ id, architecture: { input_modalities: ['text', 'image'] } });
+    const ids = ['a/image-to-image', 'flux-pro/v1/vto', 'x-vto', 'vidu-reference', 'seedream/layerize', 'v/layer-decomposition',
+        'sam3-image', 'some-vector', 'flux-schnell', 'photo-vtol'];
+    assert.deepEqual(nanogpt.normalizeModels(ids.map(model)).map((m) => m.id).sort(), ['flux-schnell', 'photo-vtol']);
+});
+
+test('OpenRouter normalizeModels drops exactly krea/k3-edit and the SVG-only model', () => {
     const all = OR_JSON.data.map((m) => m.id);
-    assert.deepEqual(all.filter((id) => !OR.some((m) => m.id === id)), ['krea/k3-edit']);
-    assert.equal(OR.length, all.length - 1);
+    assert.deepEqual(all.filter((id) => !OR.some((m) => m.id === id)), ['krea/k3-edit', 'recraft/recraft-v4.1-vector']);
+    assert.equal(OR.length, all.length - 2);
+    assert.ok(orInfo('black-forest-labs/flux.2-pro'), 'mixed output formats stay');
     const muse = orInfo('meta/muse-image');
-    assert.deepEqual(muse, { id: 'meta/muse-image', name: 'Meta: Muse Image', supported: {}, maxPromptChars: null, pricePerImage: null, nsfw: null });
+    assert.deepEqual(muse, { id: 'meta/muse-image', name: 'Meta: Muse Image', supported: {}, maxPromptChars: null, pricePerImage: null, prices: null, nsfw: null });
     assert.deepEqual(nanogpt.normalizeModels(null), []);
     assert.deepEqual(openrouter.normalizeModels({}), []);
 });
@@ -62,11 +85,11 @@ test('OpenRouter normalizeModels drops exactly krea/k3-edit', () => {
 test('listModels fetches without auth and normalizes', async () => {
     const fetchImpl = fakeFetch({ [nanogpt.MODELS_URL]: () => Response.json(NANO_JSON) });
     const models = await nanogpt.listModels({ fetchImpl });
-    assert.equal(models.length, 6);
+    assert.equal(models.length, 8);
     assert.equal(fetchImpl.calls[0].init.method, 'GET');
     assert.equal(fetchImpl.calls[0].init.headers, undefined);
     const orFetch = fakeFetch({ [openrouter.MODELS_URL]: () => Response.json(OR_JSON) });
-    assert.equal((await openrouter.listModels({ fetchImpl: orFetch })).length, OR_JSON.data.length - 1);
+    assert.equal((await openrouter.listModels({ fetchImpl: orFetch })).length, OR_JSON.data.length - 2);
 });
 
 test('buildRequest bodies, truncation and omitted size fields', () => {
@@ -150,6 +173,39 @@ test('NanoGPT accepts a top-level image, OpenRouter does not', async () => {
     assert.deepEqual(await nanogpt.generateImage({ ...ARGS, fetchImpl: nanoFetch }), { base64: JPEG, mime: 'image/jpeg' });
     const orFetch = fakeFetch({ [openrouter.GENERATE_URL]: reply });
     await assert.rejects(openrouter.generateImage({ ...ARGS, fetchImpl: orFetch }), { message: 'OpenRouter: Antwort enthält kein Bild' });
+});
+
+test('SVG and other non-raster results are rejected as unsupported_format', async () => {
+    const SVG = Buffer.from('\n  <svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>').toString('base64');
+    const XML = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64');
+    const remote = 'https://cdn.example.test/out';
+    const cases = [
+        [openrouter, { data: [{ b64_json: SVG }] }, 'image/svg+xml'],
+        [openrouter, { data: [{ b64_json: SVG, media_type: 'image/png' }] }, 'image/svg+xml'],
+        [openrouter, { data: [{ b64_json: PNG, media_type: 'image/svg+xml' }] }, 'image/svg+xml'],
+        [nanogpt, { data: [{ url: `data:image/svg+xml;base64,${SVG}` }] }, 'image/svg+xml'],
+        [nanogpt, { data: [{ url: `data:application/octet-stream;base64,${XML}` }] }, 'image/svg+xml'],
+        [nanogpt, { image: XML }, 'image/svg+xml'],
+        [nanogpt, { data: [{ b64_json: PNG, media_type: 'image/bmp' }] }, 'image/bmp'],
+    ];
+    for (const [provider, reply, mime] of cases) {
+        const fetchImpl = fakeFetch({ [provider.GENERATE_URL]: () => Response.json(reply) });
+        await assert.rejects(provider.generateImage({ ...ARGS, fetchImpl }), (err) => {
+            assert.ok(err instanceof ProviderError);
+            assert.equal(err.message, `${provider.label}: Bildformat wird nicht unterstützt (${mime})`);
+            assert.equal(err.code, 'unsupported_format');
+            return true;
+        });
+    }
+    for (const type of ['image/svg+xml', 'text/xml']) {
+        const fetchImpl = fakeFetch({
+            [nanogpt.GENERATE_URL]: () => Response.json({ data: [{ url: remote }] }),
+            [remote]: () => new Response(Buffer.from(SVG, 'base64'), { headers: { 'content-type': type } }),
+        });
+        await assert.rejects(nanogpt.generateImage({ ...ARGS, fetchImpl }), {
+            message: 'NanoGPT: Bildformat wird nicht unterstützt (image/svg+xml)', code: 'unsupported_format',
+        });
+    }
 });
 
 test('empty data throws ProviderError', async () => {

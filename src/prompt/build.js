@@ -10,6 +10,8 @@ import {
     buildLlmRequest,
     buildDirectPrompt,
     cleanLlmOutput,
+    directSceneBudget,
+    fitContext,
     finalizePrompt,
 } from './scene.js';
 
@@ -35,7 +37,11 @@ export async function buildImagePrompt({ replyIndex, settings, maxPromptChars })
         }
     }
     const usedLlm = Boolean(text);
-    if (!usedLlm) text = buildDirectPrompt({ instruction, sceneBlock });
+    if (!usedLlm) {
+        // finalizePrompt cuts from the end, so a long first message would push the latest messages out.
+        const budget = directSceneBudget({ instruction, styleSuffix: settings.styleSuffix, maxChars: maxPromptChars });
+        text = buildDirectPrompt({ instruction, sceneBlock: buildSceneBlock(fitContext(context, budget)) });
+    }
 
     return {
         prompt: finalizePrompt(text, { styleSuffix: settings.styleSuffix, maxChars: maxPromptChars }),

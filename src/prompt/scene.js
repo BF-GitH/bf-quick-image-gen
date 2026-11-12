@@ -73,13 +73,69 @@ function formatEntry(entry) {
     return `${entry.name}: ${entry.text}`;
 }
 
+const FIRST_HEADING = '[First message of the chat]\n';
+const RECENT_HEADING = '[Latest messages, oldest first]\n';
+const SECTION_SEPARATOR = '\n\n';
+
 export function buildSceneBlock({ first, recent }) {
     const sections = [];
-    if (first) sections.push(`[First message of the chat]\n${formatEntry(first)}`);
+    if (first) sections.push(`${FIRST_HEADING}${formatEntry(first)}`);
     if (Array.isArray(recent) && recent.length > 0) {
-        sections.push(`[Latest messages, oldest first]\n${recent.map(formatEntry).join('\n\n')}`);
+        sections.push(`${RECENT_HEADING}${recent.map(formatEntry).join(SECTION_SEPARATOR)}`);
     }
-    return sections.join('\n\n');
+    return sections.join(SECTION_SEPARATOR);
+}
+
+// Shorter cut-off pieces carry too little scene to be worth the room.
+const MIN_PIECE_CHARS = 80;
+const RECENT_SHARE_WITH_FIRST = 0.6;
+
+// Whole entry when it fits; a cut one only when enough of it remains, or when `force` (the reply).
+function fitEntry(entry, room, force = false) {
+    const textRoom = room - `${entry.name}: `.length;
+    if (entry.text.length <= textRoom) return entry;
+    if (!force && textRoom < MIN_PIECE_CHARS) return null;
+    const text = truncateText(entry.text, textRoom);
+    return text ? { name: entry.name, text } : null;
+}
+
+// Newest first: the reply and the user message decide the image, older messages only add to it.
+function fitRecent(recent, cap) {
+    const kept = [];
+    let used = RECENT_HEADING.length;
+    for (let i = recent.length - 1; i >= 0; i--) {
+        const separator = kept.length > 0 ? SECTION_SEPARATOR.length : 0;
+        const entry = fitEntry(recent[i], cap - used - separator, kept.length === 0);
+        if (!entry) break;
+        kept.unshift(entry);
+        used += separator + formatEntry(entry).length;
+        if (entry !== recent[i]) break;
+    }
+    return kept;
+}
+
+function sectionLength(recent) {
+    return recent.length > 0 ? buildSceneBlock({ first: null, recent }).length : 0;
+}
+
+export function fitContext({ first, recent }, budgetChars) {
+    const budget = Math.floor(Number(budgetChars) || 0);
+    const entries = Array.isArray(recent) ? recent : [];
+    if (budget < MIN_PIECE_CHARS) return { first: null, recent: [] };
+    if (first) {
+        const keptRecent = fitRecent(entries, Math.floor(budget * RECENT_SHARE_WITH_FIRST));
+        const used = sectionLength(keptRecent);
+        const room = budget - used - (used > 0 ? SECTION_SEPARATOR.length : 0) - FIRST_HEADING.length;
+        const keptFirst = fitEntry(first, room);
+        if (keptFirst) return { first: keptFirst, recent: keptRecent };
+    }
+    // Without a first message the latest messages may take the whole budget.
+    return { first: null, recent: fitRecent(entries, budget) };
+}
+
+// The direct prompt is `<instruction>\n\n<sceneBlock>` plus the style suffix finalizePrompt appends.
+export function directSceneBudget({ instruction, styleSuffix, maxChars = 1800 }) {
+    return maxChars - styleSuffixText(styleSuffix).length - toText(instruction).length - SECTION_SEPARATOR.length;
 }
 
 export function buildLlmRequest({ instruction, sceneBlock }) {
@@ -104,9 +160,13 @@ export function cleanLlmOutput(text) {
     return value.replace(/\s+/g, ' ').trim();
 }
 
-export function finalizePrompt(text, { styleSuffix = '', maxChars = 1800 } = {}) {
+function styleSuffixText(styleSuffix) {
     const style = toText(styleSuffix).trim();
-    const suffix = style ? ` Style: ${style}` : '';
+    return style ? ` Style: ${style}` : '';
+}
+
+export function finalizePrompt(text, { styleSuffix = '', maxChars = 1800 } = {}) {
+    const suffix = styleSuffixText(styleSuffix);
     const body = truncateText(toText(text).trim(), Math.max(0, maxChars - suffix.length));
     return `${body}${suffix}`.trim();
 }
