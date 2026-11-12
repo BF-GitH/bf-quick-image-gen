@@ -610,3 +610,198 @@ a failing init is logged with `LOG_PREFIX` and never throws.
   line per request. The PNG is generated in code (valid 256x256 image, own CRC32).
 - Live test (orchestrator): real SillyTavern 1.18 instance with this extension and the mock server.
 - Cannot be verified here and must be stated as unverified: real provider responses, TauriTavern on Android.
+
+## 8. Parallel mode (version 1.1.0, **BINDING**)
+
+A second way to run "Senden + Bild", chosen with the setting `parallelImage` (default `false` = the hold mode of
+sections 5.13 and 5.22, unchanged). With `parallelImage: true` two lanes run at the same time:
+
+- Text lane: the message is sent and the reply streams and renders exactly like a normal send. No CSS hold, no
+  streaming change (`disableStreamingOnce` is not called).
+- Image lane: starts as soon as the user's message is in the chat (`MESSAGE_SENT`). Its prompt context is message 0
+  plus the latest messages **up to and including the user's message** (the reply does not exist yet). The finished
+  image is attached below the reply text as soon as both the reply is complete and the image is ready.
+
+Host facts this relies on (verified in source): `generateRaw` keeps no global state (own `AbortController`, aborts
+itself on `GENERATION_STOPPED`), so it can run while the main generation streams; `MESSAGE_RECEIVED` fires when the
+reply is complete (streaming: after the last token, with the message already rendered; non-streaming: before the
+render) and the host saves the chat after its listeners returned.
+
+### 8.1 PURE: `src/flow/messages.js`, `src/flow/preflight.js` (extracted from `run-state.js`, behaviour unchanged)
+```js
+// messages.js
+export const MESSAGES                               // the object that lived in run-state.js; run-state.js re-exports it
+// preflight.js
+export function earlyExitMessage(host, isBusy)      // -> MESSAGES text | null, same checks and order as before: busy, noChat, generating, emptyText, slash
+```
+`run-state.js` uses both and keeps `export { MESSAGES }`. Its existing tests stay untouched and green (same count).
+
+### 8.2 PURE: `src/flow/parallel-run.js`
+```js
+export function createParallelImageController({ host, precheck, prepareImage, captureReply, attachImage, discardImage, status, notify, onFailure, timers, config })
+// -> { start(): Promise<boolean>, cancel(): void, isActive(): boolean, dispose(): void }
+```
+Dependencies: `host = { isChatOpen, isGenerating, getComposerText, clickSend, getRawMessage, onEvent }`;
+`precheck: async () => void`; `prepareImage: async (lastIndex, signal) => prepared` (opaque: prompt built from the
+chat up to `lastIndex`, image generated and stored; rejects on failure or abort); `captureReply: (index) => token`
+(opaque identity of the reply at arrival); `attachImage: (index, prepared, { token, save }) => Promise<void>` (it
+attaches synchronously before its first await and removes the stored image itself when it refuses, see 8.3);
+`discardImage: (prepared) => void` (removes a prepared image that will never be attached);
+`status = { setStatus(text | null, { onCancel, cancelLabel } = {}) }`; `notify = { warning, error }`;
+`onFailure(messageIndex, error)`; `timers` as in 5.13;
+`config = { startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000 }`.
+
+`start()`: `earlyExitMessage(host, run active)` -> warning, false. `await precheck()` -> on throw `notify.error`,
+false; re-check active and generating. Create the run (`phase: 'armed'`, `abort`, image state `idle`, no reply),
+`status.setStatus(MESSAGES.statusImage, { onCancel: cancel, cancelLabel: 'Abbrechen' })`, start the start-timeout and
+the watchdog, `host.clickSend()` (false -> `MESSAGES.noSendButton` error, finish, false). Else true.
+
+Events (subscribed once at creation, removed by `dispose()`), all ignored without a run:
+- `MESSAGE_SENT (index)`, phase `armed`, integer index: `userIndex = index`, phase `running`, clear the start-timeout,
+  start the image job: image state `pending`, an imaging timer of `imagingTimeoutMs`, then
+  `prepareImage(index, abort.signal)`.
+  - It resolves: run no longer current -> `discardImage(prepared)`. Else clear the imaging timer, image state `ready`;
+    if the reply is already known, attach with `save: true`; otherwise wait for the reply.
+  - It rejects: ignore when the run is no longer current or the signal is aborted or the error is an `AbortError`.
+    Else clear the imaging timer, image state `failed` with the error; if the reply is known ->
+    `onFailure(reply.index, error)` and finish; otherwise wait for the reply.
+  - Imaging timer fires while `pending`: abort the signal and treat it as a failure with
+    `new Error(MESSAGES.imageTimeout)` (same two branches).
+- `MESSAGE_RECEIVED (index, type)`, phase `running`, no reply yet: ignore `type === 'first_message'`,
+  `index <= userIndex`, a missing / `is_user` / `is_system` message, and a message whose trimmed `mes` is empty or
+  `...` (tool-call turn). Otherwise `reply = { index, token: captureReply(index) }` and:
+  - image `ready` -> attach with `save: false` and **return that promise** (the attach itself is synchronous, so the
+    host renders and saves text and image together);
+  - image `failed` -> `onFailure(index, error)`, finish;
+  - image `pending` -> return `undefined` so the reply renders at once; the run continues.
+- Attach: call `attachImage(reply.index, prepared, { token: reply.token, save })` exactly once per run; a rejection
+  -> `onFailure(reply.index, error)`; always finish afterwards. The controller never discards an image it handed to
+  `attachImage`.
+- `GENERATION_STARTED (type, options, dryRun)`, not a dry run and not `quiet`: clear a pending grace timer and
+  reset the idle counter (a tool-call follow-up generation).
+- `GENERATION_STOPPED`: cancel.
+- `GENERATION_ENDED` while no reply is known: (re)start a grace timer of `endedGraceMs`; when it fires and there is
+  still no reply, cancel silently (the generation ended without a reply).
+- `CHAT_CHANGED`: cancel.
+- Start-timeout fires in phase `armed`: `notify.warning(MESSAGES.notStarted)`, finish.
+- Watchdog tick, phase `running`, no reply: count consecutive ticks with `!host.isGenerating()`; at 2, cancel.
+  Once the reply is known the imaging timer bounds the run.
+
+`cancel()`: abort the signal and finish. `finish()`: only for the current run; clear every timer,
+`status.setStatus(null)`, `discardImage(prepared)` when an image is `ready` and was not handed to `attachImage`,
+clear the run. A `prepareImage` that settles after the run ended follows the "no longer current" rules above.
+
+Required tests (fake host, manual event bus and timers, like `tests/flow`): reply first then image (listener returns
+`undefined`, later attach with `save: true`); image first then reply (attach with `save: false`, the listener's
+promise settles after the attach); image fails before the reply (`onFailure` at reply time with the reply index);
+image fails after the reply; stop before the reply (abort, a later resolving `prepareImage` is discarded, no
+`onFailure`); `GENERATION_ENDED` without a reply (grace, cancel, a ready image is discarded); `cancel()` during the
+image job while the reply continues; `CHAT_CHANGED`; start-timeout; every early exit and a precheck failure (no
+click); empty tool-call message skipped and the real reply used; follow-up `GENERATION_STARTED` inside the grace
+time keeps the run; imaging timeout before and after the reply; watchdog cancel; the attach is called at most once;
+`attachImage` rejecting -> `onFailure`; status bar set at start with the cancel label `Abbrechen` and cleared at the end.
+
+### 8.3 WIRING: `src/flow/generate-image.js` (split, hold-mode behaviour unchanged)
+```js
+export async function prepareImage(lastIndex, { signal } = {})    // -> prepared = { url, prompt, extension, providerId, model, folder, ts }
+export function captureMessage(messageIndex)                     // -> token { message, swipeId, chatId }; throws the "message gone" error when missing
+export async function attachPreparedImage(messageIndex, prepared, { token, save = false } = {})
+export function discardPreparedImage(prepared)                   // deleteImage(url) for an uploaded image (extension set); nothing for a remote url
+```
+`prepareImage`: settings -> provider -> model -> `resolveApiKey` -> `getModelInfo` -> `buildImagePrompt({ lastIndex, ... })`
+-> `provider.generateImage` -> upload (or remote url with the warning), with the abort checks of section 5.21. No
+attach, no gallery record.
+`attachPreparedImage`: verify `token` against `getRawMessage(messageIndex)` (same object, same `swipe_id`, same
+`getChatId()`); on mismatch `discardPreparedImage(prepared)` and throw the "message gone" error. Then
+`attachImageToMessage` (false -> same error after discarding), `addGalleryRecord`, and only after that the first
+await: `save ? await saveChat()`. Finally the auto-save dialog as in 5.21.
+`generateImageForMessage(messageIndex, { signal, saveBefore, saveAfterAttach })` keeps its contract and is now
+`captureMessage` -> `saveBefore ? saveChat()` -> `prepareImage(messageIndex, { signal })` ->
+`attachPreparedImage(messageIndex, prepared, { token, save: saveAfterAttach })`.
+`src/prompt/build.js`: the parameter `replyIndex` of `buildImagePrompt` is renamed `lastIndex` (the newest message
+that belongs to the context).
+
+### 8.4 WIRING: `src/flow/send-with-image.js`
+Creates both controllers. `start()` reads `getSettings().parallelImage` at call time and starts the matching one.
+Each controller's `precheck` first refuses with `MESSAGES.busy` while the other controller is active or a retry
+runs, then calls `checkConfiguration()`. The retry refuses while either controller is active.
+Parallel controller deps: `prepareImage: (lastIndex, signal) => prepareImage(lastIndex, { signal })`,
+`captureReply: captureMessage`, `attachImage: attachPreparedImage`, `discardImage: discardPreparedImage`,
+`status: hold` (only its `setStatus` is used), `onFailure`: the same retry toast as in hold mode (the retry then
+runs `generateImageForMessage` for the reply, whose context includes the reply).
+
+### 8.5 Settings and UI
+- `DEFAULT_SETTINGS.parallelImage = false`; `normalizeSettings` coerces it to a boolean.
+- Checkbox `bfqig-parallel` (same markup pattern as `bfqig-use-llm`) in the settings pane directly after the prompt
+  reset row and before the advanced block, followed by a note. It writes `parallelImage` through `updateSettings`.
+- Layering table: `src/flow/messages.js`, `src/flow/preflight.js` and `src/flow/parallel-run.js` are PURE.
+
+| Key / place | Text |
+|---|---|
+| parallel checkbox | `Text sofort zeigen, Bild parallel erzeugen` |
+| parallel note | `Aus: Die Antwort erscheint erst zusammen mit dem Bild. An: Die Antwort wird normal gestreamt; das Bild entsteht gleichzeitig aus dem Stand bis zu deiner Nachricht und wird darunter eingefügt.` |
+| key state locked (replaces the text in section 6) | `In der App ist ein Key gespeichert, aber für Erweiterungen gesperrt. Entweder in TauriTavern freigeben (User Settings → „TauriTavern Settings“ → Misc → „Allow Keys Exposure“, danach App neu starten) oder den Key hier eintragen.` |
+
+## 9. Prompt focus: the current moment, message 0 as background only (version 1.1.0, **BINDING**)
+
+Field report: the images followed message 0 too much. Message 0 is background information (what the characters and
+the world look like) and nothing more; the image must show the current moment. This section replaces the
+corresponding texts and rules of section 5.12 and 5.20.
+
+### 9.1 `src/prompt/scene.js`
+- `DEFAULT_INSTRUCTION` (exact, one line): `Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.`
+- `export const LEGACY_DEFAULT_INSTRUCTIONS`: an array holding the version 1.0 default text exactly (the one that
+  ends with `...and the current action from the latest messages.`). Used only to migrate stored settings.
+- Section headings (exact):
+  - background: `[Background, reference only: looks and world]`
+  - earlier: `[Earlier messages, context only]`
+  - current: `[Current moment, depict this]`
+- `collectContext` is unchanged (`{ first, recent }`, `recent` oldest first). The **current** entry is the last
+  element of `recent`; the **earlier** entries are the ones before it; the **background** is `first`.
+- `buildSceneBlock({ first, recent }, { currentFirst = false } = {})`: three sections with the headings above, each
+  omitted when empty, entries as `<name>: <text>` separated by a blank line, sections separated by a blank line.
+  Order with `currentFirst: false` (request to the chat model, which weighs the end most): background, earlier,
+  current. Order with `currentFirst: true` (direct prompt for an image model, which weighs the start most): current,
+  earlier, background.
+- `buildLlmRequest`: `prompt` keeps the shape `Task: <instruction>\n\n<sceneBlock>\n\nImage prompt:`. `systemPrompt`
+  (exact): `You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only if the current moment still takes place there. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.`
+- `fitContext({ first, recent }, budgetChars)` priorities: (1) the current entry is always kept, truncated to the
+  budget if necessary; (2) earlier entries are added newest first while they fit (an entry that does not fit
+  completely may be truncated if at least 80 characters of its text remain, else it and everything older is
+  dropped); (3) the background gets what is left, but at most 30 percent of the budget when at least one recent
+  entry exists; it is dropped when fewer than 80 characters of its text would remain. With no recent entries the
+  background may use the whole budget. A budget below 80 returns `{ first: null, recent: [] }`. The result keeps
+  `recent` oldest first and satisfies `buildSceneBlock(result, { currentFirst: true }).length <= budgetChars`.
+
+### 9.2 `src/prompt/build.js`
+Chat-model path: `buildLlmRequest({ instruction, sceneBlock: buildSceneBlock(context) })`. Direct path:
+`buildDirectPrompt({ instruction, sceneBlock: buildSceneBlock(fitContext(context, budget), { currentFirst: true }) })`.
+
+### 9.3 `src/settings/defaults.js`
+`normalizeSettings`: an `instruction` that is empty or equals an entry of `LEGACY_DEFAULT_INSTRUCTIONS` becomes
+`DEFAULT_INSTRUCTION`, so existing installs get the new default; a text the user changed is kept.
+
+Required tests: both section orders with the exact headings; a single recent entry is the current moment and there is
+no earlier section; no background; `fitContext` keeps the current entry in full when a 2600-character background and
+a small budget compete, caps the background at 30 percent, and never exceeds the budget; the system prompt and the
+default instruction are single lines; the legacy instruction is migrated and a customised one is kept.
+
+## 10. Long-press on a generated image in the chat (version 1.1.0, **BINDING**)
+
+Field report from Android: the host shows its image controls (trash can) only on hover. A long-press does not reveal
+them; it opens TauriTavern's "save image" confirmation, which is the host's default action for `contextmenu` on an
+`<img>` and is cancelled only by `preventDefault()` (the host checks `event.defaultPrevented` in a task after the
+dispatch). So deleting a generated image from the chat is hardly possible on a phone.
+
+- New UI module `src/gallery/chat-image-menu.js`: `export function installChatImageMenu()` (idempotent). It adds one
+  capture-phase `contextmenu` listener on `document`. The listener acts only when all of this holds:
+  - the event target is an `<img>` inside `#chat`;
+  - the event came from touch: `event.pointerType` is a non-empty string other than `mouse`, or, when `pointerType`
+    is missing, `matchMedia('(hover: none)').matches`. A mouse right-click keeps the browser menu;
+  - the image is one of ours: its `src` attribute, compared after stripping leading slashes, equals the `url` of a
+    gallery record, or its file name starts with `bfqig_`.
+  Then it calls `event.preventDefault()` and opens `openImageViewer(record)`: the gallery record, or
+  `{ url: <src attribute>, prompt: <title attribute or ''> }` when there is none. Every other image is left to the host.
+- `index.js` calls `installChatImageMenu()` after the settings panel is mounted.
+- The viewer's "Löschen" removes the file, the gallery record and the media entry in the open chat (section 5.18),
+  "Auf Gerät speichern" replaces the host's save confirmation.

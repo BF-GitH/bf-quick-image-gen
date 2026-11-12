@@ -1,4 +1,5 @@
 // WIRING: one image for one chat message, from settings to attached media and gallery record.
+// Split into prepare (prompt, image, upload) and attach, so the parallel mode can generate while the reply streams.
 
 import { EXTENSION_ID, LOG_PREFIX } from '../shared/constants.js';
 import { getProvider } from '../providers/index.js';
@@ -61,12 +62,12 @@ async function produceImage({ target, modelInfo, prompt, folder, ts, signal }) {
     return { url, extension };
 }
 
-function record({ url, prompt, target, character }) {
+function record({ url, prompt, providerId, model, character }) {
     addGalleryRecord({
         url,
         prompt,
-        provider: target.provider.id,
-        model: target.model,
+        provider: providerId,
+        model,
         character,
         timestamp: Date.now(),
     });
@@ -79,29 +80,25 @@ export async function checkConfiguration() {
 
 // While the job runs the host UI can be unlocked (retry, streaming): the user may delete, swipe or switch chats,
 // and the index would then name another message. Only the exact message, swipe and chat may get the image.
-function captureMessage(messageIndex) {
+export function captureMessage(messageIndex) {
     const message = getRawMessage(messageIndex);
     if (!message) throw new Error(MESSAGE_GONE);
     return { message, swipeId: message.swipe_id, chatId: getChatId() };
 }
 
-function isSameMessage(messageIndex, captured) {
+function isSameMessage(messageIndex, token) {
+    if (!token) return false;
     const message = getRawMessage(messageIndex);
-    return message === captured.message && message.swipe_id === captured.swipeId && getChatId() === captured.chatId;
+    return message === token.message && message.swipe_id === token.swipeId && getChatId() === token.chatId;
 }
 
-export async function generateImageForMessage(messageIndex, { signal, saveBefore = false, saveAfterAttach = false } = {}) {
+export async function prepareImage(lastIndex, { signal } = {}) {
     throwIfAborted(signal);
-    const captured = captureMessage(messageIndex);
     const target = await resolveTarget(signal);
-    if (saveBefore) {
-        await saveChat();
-        throwIfAborted(signal);
-    }
     const modelInfo = await getModelInfo(target.provider.id, target.model);
     throwIfAborted(signal);
     const { prompt } = await buildImagePrompt({
-        replyIndex: messageIndex,
+        lastIndex,
         settings: target.settings,
         maxPromptChars: promptLimit(modelInfo),
     });
@@ -110,24 +107,41 @@ export async function generateImageForMessage(messageIndex, { signal, saveBefore
     const folder = getImageFolderName();
     const ts = timestampName();
     const { url, extension } = await produceImage({ target, modelInfo, prompt, folder, ts, signal });
+    return { url, prompt, extension, providerId: target.provider.id, model: target.model, folder, ts };
+}
 
-    if (!isSameMessage(messageIndex, captured)) {
-        // Only an uploaded file is ours to remove; deleteImage never throws, so no await needed.
-        if (extension) deleteImage(url);
+export function discardPreparedImage(prepared) {
+    // Only an uploaded file is ours to remove; deleteImage never throws, so no await needed.
+    if (prepared?.extension) deleteImage(prepared.url);
+}
+
+// Everything up to the gallery record runs before the first await: the parallel mode returns this promise from
+// its MESSAGE_RECEIVED listener, and the host renders and saves the reply right after the listener settles.
+export async function attachPreparedImage(messageIndex, prepared, { token, save = false } = {}) {
+    const { url, prompt, extension, providerId, model, folder, ts } = prepared;
+    if (!isSameMessage(messageIndex, token) || !attachImageToMessage(messageIndex, { url, title: prompt })) {
+        discardPreparedImage(prepared);
         throw new Error(MESSAGE_GONE);
     }
-    if (!attachImageToMessage(messageIndex, { url, title: prompt })) throw new Error(MESSAGE_GONE);
-    record({ url, prompt, target, character: folder });
-    if (saveAfterAttach) {
-        await saveChat();
-        throwIfAborted(signal);
-    }
-    if (target.settings.autoSaveDialog && extension) {
+    record({ url, prompt, providerId, model, character: folder });
+    if (save) await saveChat();
+    if (getSettings().autoSaveDialog && extension) {
         saveToDevice(url, `tauri_${ts}.${extension}`).catch((error) => {
             console.warn(`${LOG_PREFIX} save dialog failed:`, error?.message ?? error);
         });
     }
-    return { url, prompt };
+}
+
+export async function generateImageForMessage(messageIndex, { signal, saveBefore = false, saveAfterAttach = false } = {}) {
+    throwIfAborted(signal);
+    const token = captureMessage(messageIndex);
+    if (saveBefore) {
+        await saveChat();
+        throwIfAborted(signal);
+    }
+    const prepared = await prepareImage(messageIndex, { signal });
+    await attachPreparedImage(messageIndex, prepared, { token, save: saveAfterAttach });
+    return { url: prepared.url, prompt: prepared.prompt };
 }
 
 export async function generateTestImage({ signal } = {}) {
@@ -147,6 +161,6 @@ export async function generateTestImage({ signal } = {}) {
         ts: timestampName(),
         signal,
     });
-    record({ url, prompt, target, character: 'Test' });
+    record({ url, prompt, providerId: target.provider.id, model: target.model, character: 'Test' });
     return { url, prompt };
 }

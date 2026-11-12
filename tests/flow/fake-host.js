@@ -1,6 +1,7 @@
 // Test doubles for run-state: a manual event bus that awaits listeners like the host,
 // manual timers driven by advance(), and a recording hold/notify.
 import { createSendWithImageController } from '../../src/flow/run-state.js';
+import { createParallelImageController } from '../../src/flow/parallel-run.js';
 
 export function createTimers() {
     let now = 0;
@@ -53,6 +54,10 @@ export function createBus() {
         },
         count(key) {
             return handlers.get(key)?.length ?? 0;
+        },
+        // Lets a test call a listener directly and inspect what it returns to the host.
+        handlersOf(key) {
+            return [...(handlers.get(key) ?? [])];
         },
     };
 }
@@ -114,6 +119,64 @@ export function setup({ processReply, precheck, streaming = true, onFailure, con
         config,
     });
     return { bus, timers, log, state, host, notes, failures, replies, controller };
+}
+
+// Parallel controller harness: prepareImage hands out one deferred per call so tests settle it by hand.
+export function setupParallel({ precheck, attachImage, captureReply, onFailure, config } = {}) {
+    const bus = createBus();
+    const timers = createTimers();
+    const statuses = [];
+    const state = {
+        chatOpen: true,
+        generating: false,
+        composer: 'Hallo Welt',
+        clickResult: true,
+        clicks: 0,
+        chat: [{ name: 'Bob', mes: 'Greeting' }],
+    };
+    const host = {
+        isChatOpen: () => state.chatOpen,
+        isGenerating: () => state.generating,
+        getComposerText: () => state.composer,
+        clickSend: () => { state.clicks++; return state.clickResult; },
+        getRawMessage: (index) => state.chat[index] ?? null,
+        onEvent: (key, handler) => bus.on(key, handler),
+    };
+    const notes = [];
+    const failures = [];
+    const jobs = [];
+    const attaches = [];
+    const discards = [];
+    const controller = createParallelImageController({
+        host,
+        precheck: precheck ?? (async () => {}),
+        prepareImage: (lastIndex, signal) => {
+            const job = { lastIndex, signal, ...deferred() };
+            jobs.push(job);
+            return job.promise;
+        },
+        captureReply: captureReply ?? ((index) => ({ token: index })),
+        attachImage: attachImage ?? ((index, prepared, options) => {
+            attaches.push({ index, prepared, ...options });
+            return Promise.resolve();
+        }),
+        discardImage: (prepared) => discards.push(prepared),
+        status: { setStatus: (text, options) => statuses.push([text, options]) },
+        notify: {
+            warning: (msg) => notes.push(['warning', msg]),
+            error: (msg) => notes.push(['error', msg]),
+        },
+        onFailure: onFailure ?? ((index, error) => failures.push({ index, error })),
+        timers,
+        config,
+    });
+    return { bus, timers, state, notes, failures, jobs, attaches, discards, statuses, controller };
+}
+
+// Appends the user message the host would push before MESSAGE_SENT and returns its index.
+export function pushUser(state) {
+    state.chat.push({ name: 'User', mes: 'Hi', is_user: true });
+    return state.chat.length - 1;
 }
 
 // Appends the reply the host would push before MESSAGE_RECEIVED and returns its index.

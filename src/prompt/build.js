@@ -15,10 +15,10 @@ import {
     finalizePrompt,
 } from './scene.js';
 
-export async function buildImagePrompt({ replyIndex, settings, maxPromptChars }) {
+export async function buildImagePrompt({ lastIndex, settings, maxPromptChars }) {
     const context = collectContext({
         chatLength: getChatLength(),
-        replyIndex,
+        replyIndex: lastIndex,
         recentCount: settings.contextMessages,
         getSnapshot: getMessageSnapshot,
     });
@@ -40,7 +40,8 @@ export async function buildImagePrompt({ replyIndex, settings, maxPromptChars })
     if (!usedLlm) {
         // finalizePrompt cuts from the end, so a long first message would push the latest messages out.
         const budget = directSceneBudget({ instruction, styleSuffix: settings.styleSuffix, maxChars: maxPromptChars });
-        text = buildDirectPrompt({ instruction, sceneBlock: buildSceneBlock(fitContext(context, budget)) });
+        const fitted = fitContext(context, budget);
+        text = buildDirectPrompt({ instruction, sceneBlock: buildSceneBlock(fitted, { currentFirst: true }) });
     }
 
     return {

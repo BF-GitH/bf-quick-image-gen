@@ -2,19 +2,10 @@
 // Pure: every host effect and every timer comes in through the deps object so it runs in Node.
 
 import { LOG_PREFIX } from '../shared/constants.js';
+import { MESSAGES } from './messages.js';
+import { earlyExitMessage } from './preflight.js';
 
-export const MESSAGES = Object.freeze({
-    busy: 'Es läuft bereits ein Bild-Auftrag.',
-    noChat: 'Kein Chat geöffnet.',
-    generating: 'Es läuft bereits eine Generierung.',
-    emptyText: 'Bitte zuerst Text ins Nachrichtenfeld schreiben.',
-    slash: 'Slash-Befehle bitte normal senden.',
-    noSendButton: 'Senden-Knopf nicht gefunden.',
-    notStarted: 'Senden wurde nicht gestartet.',
-    statusReply: 'Antwort wird erstellt …',
-    statusImage: 'Bild wird generiert …',
-    imageTimeout: 'Zeitüberschreitung bei der Bilderstellung.',
-});
+export { MESSAGES };
 
 const DEFAULT_CONFIG = Object.freeze({
     startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000, preRequestTimeoutMs: 30000,
@@ -206,18 +197,8 @@ export function createSendWithImageController({
         host.onEvent('CHAT_CHANGED', onChatChanged),
     ];
 
-    function earlyExitMessage() {
-        if (run) return MESSAGES.busy;
-        if (!host.isChatOpen()) return MESSAGES.noChat;
-        if (host.isGenerating()) return MESSAGES.generating;
-        const text = String(host.getComposerText() ?? '').trim();
-        if (!text) return MESSAGES.emptyText;
-        if (text.startsWith('/')) return MESSAGES.slash;
-        return null;
-    }
-
     async function start() {
-        const early = earlyExitMessage();
+        const early = earlyExitMessage(host, run !== null);
         if (early) {
             notify.warning(early);
             return false;

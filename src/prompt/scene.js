@@ -1,10 +1,15 @@
 // Turns chat snapshots into an image prompt. Pure: the caller supplies the snapshots.
 
-export const DEFAULT_INSTRUCTION = 'Depict the current moment of this roleplay as one image: the characters present with their appearance (hair, eyes, build, clothing), their pose and expression, the location, lighting and mood. Take the characters\' looks and the setting from the first message and the current action from the latest messages.';
+export const DEFAULT_INSTRUCTION = 'Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.';
+
+// Stored settings that still hold an old default get the new one; a text the user wrote is kept.
+export const LEGACY_DEFAULT_INSTRUCTIONS = Object.freeze([
+    'Depict the current moment of this roleplay as one image: the characters present with their appearance (hair, eyes, build, clothing), their pose and expression, the location, lighting and mood. Take the characters\' looks and the setting from the first message and the current action from the latest messages.',
+]);
 
 export const LIMITS = Object.freeze({ firstMessageChars: 2500, messageChars: 1500 });
 
-const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.';
+const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only if the current moment still takes place there. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.';
 
 const THINK_BLOCKS = /<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 const CODE_BLOCKS = /<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
@@ -73,24 +78,31 @@ function formatEntry(entry) {
     return `${entry.name}: ${entry.text}`;
 }
 
-const FIRST_HEADING = '[First message of the chat]\n';
-const RECENT_HEADING = '[Latest messages, oldest first]\n';
+// Message 0 is reference material; labelling it keeps the models from painting its events.
+const BACKGROUND_HEADING = '[Background, reference only: looks and world]\n';
+const EARLIER_HEADING = '[Earlier messages, context only]\n';
+const CURRENT_HEADING = '[Current moment, depict this]\n';
 const SECTION_SEPARATOR = '\n\n';
 
-export function buildSceneBlock({ first, recent }) {
-    const sections = [];
-    if (first) sections.push(`${FIRST_HEADING}${formatEntry(first)}`);
-    if (Array.isArray(recent) && recent.length > 0) {
-        sections.push(`${RECENT_HEADING}${recent.map(formatEntry).join(SECTION_SEPARATOR)}`);
-    }
-    return sections.join(SECTION_SEPARATOR);
+function formatSection(heading, entries) {
+    return `${heading}${entries.map(formatEntry).join(SECTION_SEPARATOR)}`;
+}
+
+// Chat models weigh the end of a prompt most, image models the start, so the current moment goes where it counts.
+export function buildSceneBlock({ first, recent }, { currentFirst = false } = {}) {
+    const entries = Array.isArray(recent) ? recent : [];
+    const background = first ? formatSection(BACKGROUND_HEADING, [first]) : '';
+    const earlier = entries.length > 1 ? formatSection(EARLIER_HEADING, entries.slice(0, -1)) : '';
+    const current = entries.length > 0 ? formatSection(CURRENT_HEADING, entries.slice(-1)) : '';
+    const sections = currentFirst ? [current, earlier, background] : [background, earlier, current];
+    return sections.filter(Boolean).join(SECTION_SEPARATOR);
 }
 
 // Shorter cut-off pieces carry too little scene to be worth the room.
 const MIN_PIECE_CHARS = 80;
-const RECENT_SHARE_WITH_FIRST = 0.6;
+const BACKGROUND_SHARE_WITH_RECENT = 0.3;
 
-// Whole entry when it fits; a cut one only when enough of it remains, or when `force` (the reply).
+// Whole entry when it fits; a cut one only when enough of it remains, or when `force` (the current moment).
 function fitEntry(entry, room, force = false) {
     const textRoom = room - `${entry.name}: `.length;
     if (entry.text.length <= textRoom) return entry;
@@ -99,38 +111,39 @@ function fitEntry(entry, room, force = false) {
     return text ? { name: entry.name, text } : null;
 }
 
-// Newest first: the reply and the user message decide the image, older messages only add to it.
-function fitRecent(recent, cap) {
+// Newest first: the messages closest to the current moment explain it best.
+function fitEarlier(earlier, room) {
     const kept = [];
-    let used = RECENT_HEADING.length;
-    for (let i = recent.length - 1; i >= 0; i--) {
+    let used = SECTION_SEPARATOR.length + EARLIER_HEADING.length;
+    for (let i = earlier.length - 1; i >= 0; i--) {
         const separator = kept.length > 0 ? SECTION_SEPARATOR.length : 0;
-        const entry = fitEntry(recent[i], cap - used - separator, kept.length === 0);
+        const entry = fitEntry(earlier[i], room - used - separator);
         if (!entry) break;
         kept.unshift(entry);
         used += separator + formatEntry(entry).length;
-        if (entry !== recent[i]) break;
+        if (entry !== earlier[i]) break;
     }
     return kept;
-}
-
-function sectionLength(recent) {
-    return recent.length > 0 ? buildSceneBlock({ first: null, recent }).length : 0;
 }
 
 export function fitContext({ first, recent }, budgetChars) {
     const budget = Math.floor(Number(budgetChars) || 0);
     const entries = Array.isArray(recent) ? recent : [];
     if (budget < MIN_PIECE_CHARS) return { first: null, recent: [] };
-    if (first) {
-        const keptRecent = fitRecent(entries, Math.floor(budget * RECENT_SHARE_WITH_FIRST));
-        const used = sectionLength(keptRecent);
-        const room = budget - used - (used > 0 ? SECTION_SEPARATOR.length : 0) - FIRST_HEADING.length;
-        const keptFirst = fitEntry(first, room);
-        if (keptFirst) return { first: keptFirst, recent: keptRecent };
+    let keptRecent = [];
+    if (entries.length > 0) {
+        const current = fitEntry(entries[entries.length - 1], budget - CURRENT_HEADING.length, true);
+        if (current) {
+            const used = CURRENT_HEADING.length + formatEntry(current).length;
+            keptRecent = [...fitEarlier(entries.slice(0, -1), budget - used), current];
+        }
     }
-    // Without a first message the latest messages may take the whole budget.
-    return { first: null, recent: fitRecent(entries, budget) };
+    if (!first) return { first: null, recent: keptRecent };
+    const used = keptRecent.length > 0 ? buildSceneBlock({ first: null, recent: keptRecent }).length : 0;
+    const left = used > 0 ? budget - used - SECTION_SEPARATOR.length : budget;
+    const cap = used > 0 ? Math.min(left, Math.floor(budget * BACKGROUND_SHARE_WITH_RECENT)) : left;
+    const keptFirst = fitEntry(first, cap - BACKGROUND_HEADING.length);
+    return { first: keptFirst, recent: keptRecent };
 }
 
 // The direct prompt is `<instruction>\n\n<sceneBlock>` plus the style suffix finalizePrompt appends.

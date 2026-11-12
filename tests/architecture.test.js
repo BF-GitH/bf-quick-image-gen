@@ -19,7 +19,10 @@ const WIRING_FORBIDDEN = [
     ['SillyTavern', /\bSillyTavern\b/], ['__TAURITAVERN__', /__TAURITAVERN__/], ['toastr', /\btoastr\b/],
     ['a string starting with /api/', /['"`]\/api\//],
 ];
-const PURE_FILES = new Set(['src/prompt/scene.js', 'src/flow/run-state.js', 'src/gallery/records.js', 'src/settings/defaults.js']);
+const PURE_FILES = new Set([
+    'src/prompt/scene.js', 'src/flow/run-state.js', 'src/flow/messages.js', 'src/flow/preflight.js',
+    'src/flow/parallel-run.js', 'src/gallery/records.js', 'src/settings/defaults.js',
+]);
 
 // Removes // and /* */ comments while keeping strings, regex literals and nested template expressions intact.
 function stripComments(src) {

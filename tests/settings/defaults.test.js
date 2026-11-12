@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_SETTINGS, normalizeSettings, toggleFavorite } from '../../src/settings/defaults.js';
-import { DEFAULT_INSTRUCTION } from '../../src/prompt/scene.js';
+import { DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS } from '../../src/prompt/scene.js';
 import { GALLERY_LIMIT } from '../../src/gallery/records.js';
 import { DEFAULT_MODELS } from '../../src/shared/constants.js';
 
 const EXPECTED_DEFAULTS = {
     provider: 'nanogpt', keys: { nanogpt: '', openrouter: '' }, models: { ...DEFAULT_MODELS },
     favorites: { nanogpt: [], openrouter: [] }, instruction: DEFAULT_INSTRUCTION, aspect: '1:1', quality: 'standard',
-    contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, gallery: [],
+    contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
 };
 
 test('DEFAULT_SETTINGS matches the template and is frozen', () => {
@@ -40,7 +40,7 @@ test('normalizeSettings keeps valid values', () => {
     const saved = {
         provider: 'openrouter', keys: { nanogpt: 'a', openrouter: 'b' }, models: { nanogpt: 'x', openrouter: 'y' },
         favorites: { nanogpt: ['x'], openrouter: ['y', 'z'] }, instruction: 'Malen', aspect: '16:9', quality: 'high',
-        contextMessages: 12, styleSuffix: 'anime', useLlm: false, autoSaveDialog: true,
+        contextMessages: 12, styleSuffix: 'anime', useLlm: false, autoSaveDialog: true, parallelImage: true,
         gallery: [{ url: 'user/images/a.png', prompt: 'p' }],
     };
     const result = normalizeSettings(saved);
@@ -52,7 +52,7 @@ test('normalizeSettings repairs garbage types', () => {
     const result = normalizeSettings({
         provider: 7, keys: 'nope', models: { nanogpt: 5, openrouter: null }, favorites: { nanogpt: 'x', openrouter: [1, 'a'] },
         instruction: { a: 1 }, aspect: 1, quality: [], contextMessages: 'viele', styleSuffix: 3, useLlm: 'yes',
-        autoSaveDialog: 1, gallery: 'list',
+        autoSaveDialog: 1, parallelImage: 'true', gallery: 'list',
     });
     assert.deepEqual(result, {
         ...EXPECTED_DEFAULTS,
@@ -92,6 +92,27 @@ test('normalizeSettings replaces an empty instruction and empty models with defa
     const result = normalizeSettings({ instruction: '   ', models: { nanogpt: '', openrouter: '  ' } });
     assert.equal(result.instruction, DEFAULT_INSTRUCTION);
     assert.deepEqual(result.models, { ...DEFAULT_MODELS });
+});
+
+test('normalizeSettings migrates the legacy default instruction and keeps a customised one', () => {
+    assert.ok(LEGACY_DEFAULT_INSTRUCTIONS.length > 0);
+    for (const legacy of LEGACY_DEFAULT_INSTRUCTIONS) {
+        assert.notEqual(legacy, DEFAULT_INSTRUCTION);
+        assert.equal(normalizeSettings({ instruction: legacy }).instruction, DEFAULT_INSTRUCTION);
+    }
+    assert.equal(normalizeSettings({ instruction: '' }).instruction, DEFAULT_INSTRUCTION);
+    const custom = `${LEGACY_DEFAULT_INSTRUCTIONS[0]} Always in watercolour.`;
+    assert.equal(normalizeSettings({ instruction: custom }).instruction, custom);
+    assert.equal(normalizeSettings({ instruction: 'Malen' }).instruction, 'Malen');
+});
+
+test('normalizeSettings coerces parallelImage to a boolean, default false', () => {
+    assert.equal(DEFAULT_SETTINGS.parallelImage, false);
+    assert.equal(normalizeSettings({ parallelImage: true }).parallelImage, true);
+    assert.equal(normalizeSettings({ parallelImage: false }).parallelImage, false);
+    for (const garbage of [undefined, null, 1, 'true', {}]) {
+        assert.equal(normalizeSettings({ parallelImage: garbage }).parallelImage, false, String(garbage));
+    }
 });
 
 test('toggleFavorite adds and removes without mutating', () => {

@@ -43,6 +43,11 @@ const MARKUP = `
       <div class="flex-container">
         <button type="button" id="bfqig-instruction-reset" class="menu_button">Standard</button>
       </div>
+      <label class="checkbox_label bfqig-check" for="bfqig-parallel">
+        <input id="bfqig-parallel" type="checkbox">
+        <span>Text sofort zeigen, Bild parallel erzeugen</span>
+      </label>
+      <div class="bfqig-note">Aus: Die Antwort erscheint erst zusammen mit dem Bild. An: Die Antwort wird normal gestreamt; das Bild entsteht gleichzeitig aus dem Stand bis zu deiner Nachricht und wird darunter eingefügt.</div>
       <details id="bfqig-advanced" class="bfqig-advanced">
         <summary>Erweitert</summary>
         <label class="bfqig-label" for="bfqig-aspect">Seitenverhältnis</label>
@@ -154,6 +159,7 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     const context = byId('bfqig-context');
     const style = byId('bfqig-style');
     const useLlm = byId('bfqig-use-llm');
+    const parallel = byId('bfqig-parallel');
     const autoSave = byId('bfqig-auto-save');
     const testButton = byId('bfqig-test');
 
@@ -168,6 +174,7 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     context.value = String(settings.contextMessages);
     style.value = settings.styleSuffix;
     useLlm.checked = settings.useLlm;
+    parallel.checked = settings.parallelImage;
     autoSave.checked = settings.autoSaveDialog;
 
     provider.addEventListener('change', () => {
@@ -202,6 +209,7 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     });
     style.addEventListener('input', () => updateSettings({ styleSuffix: style.value }));
     useLlm.addEventListener('change', () => updateSettings({ useLlm: useLlm.checked }));
+    parallel.addEventListener('change', () => updateSettings({ parallelImage: parallel.checked }));
     autoSave.addEventListener('change', () => updateSettings({ autoSaveDialog: autoSave.checked }));
 
     testButton.addEventListener('click', async () => {

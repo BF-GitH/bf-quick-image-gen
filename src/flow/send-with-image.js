@@ -1,8 +1,18 @@
-// WIRING: binds the pure send-with-image controller to the host and adds the tap-to-retry path.
+// WIRING: binds the pure send-with-image controllers (hold mode and parallel mode) to the host and adds the
+// tap-to-retry path.
 
 import { createSendWithImageController, MESSAGES } from './run-state.js';
+import { createParallelImageController } from './parallel-run.js';
 import { createHold } from './hold.js';
-import { checkConfiguration, generateImageForMessage } from './generate-image.js';
+import {
+    attachPreparedImage,
+    captureMessage,
+    checkConfiguration,
+    discardPreparedImage,
+    generateImageForMessage,
+    prepareImage,
+} from './generate-image.js';
+import { getSettings } from '../settings/store.js';
 import { getChatId, isChatOpen, isGenerating, notify, onHostEvent } from '../host/st.js';
 import { getChatLength, getRawMessage } from '../host/chat.js';
 import { clickSend, disableStreamingOnce, getComposerText } from '../host/send.js';
@@ -19,7 +29,8 @@ export function initSendWithImage() {
     // exactly that message; after a chat switch or a deleted/swapped message the index means something else.
     const failures = new Map();
     let retrying = false;
-    let controller = null;
+    let holdController = null;
+    let parallelController = null;
 
     function showFailure(index, error) {
         failures.set(index, { chatId: getChatId(), message: getRawMessage(index) });
@@ -30,7 +41,21 @@ export function initSendWithImage() {
         });
     }
 
-    controller = createSendWithImageController({
+    // Both modes share the status bar, the chat and the retry toast, so only one job may run at a time.
+    function precheckExcept(own) {
+        return async () => {
+            const other = own === 'hold' ? parallelController : holdController;
+            if (retrying || other?.isActive()) throw new Error(MESSAGES.busy);
+            await checkConfiguration();
+        };
+    }
+
+    const toastNotify = {
+        warning: (message) => notify.warning(message),
+        error: (message) => notify.error(message),
+    };
+
+    holdController = createSendWithImageController({
         host: {
             isChatOpen,
             isGenerating,
@@ -41,23 +66,36 @@ export function initSendWithImage() {
             disableStreamingOnce,
             onEvent: onHostEvent,
         },
-        precheck: async () => {
-            if (retrying) throw new Error(MESSAGES.busy);
-            await checkConfiguration();
-        },
+        precheck: precheckExcept('hold'),
         processReply: (index, signal) => generateImageForMessage(index, { signal, saveBefore: true }),
         hold,
-        notify: {
-            warning: (message) => notify.warning(message),
-            error: (message) => notify.error(message),
+        notify: toastNotify,
+        onFailure: showFailure,
+    });
+
+    parallelController = createParallelImageController({
+        host: {
+            isChatOpen,
+            isGenerating,
+            getComposerText,
+            clickSend,
+            getRawMessage,
+            onEvent: onHostEvent,
         },
+        precheck: precheckExcept('parallel'),
+        prepareImage: (lastIndex, signal) => prepareImage(lastIndex, { signal }),
+        captureReply: captureMessage,
+        attachImage: attachPreparedImage,
+        discardImage: discardPreparedImage,
+        status: hold,
+        notify: toastNotify,
         onFailure: showFailure,
     });
 
     async function retry(messageIndex) {
         const failure = failures.get(messageIndex);
         if (!failure) return;
-        if (retrying || controller.isActive()) {
+        if (retrying || holdController.isActive() || parallelController.isActive()) {
             notify.warning(MESSAGES.busy);
             return;
         }
@@ -89,7 +127,8 @@ export function initSendWithImage() {
     }
 
     return {
-        start: () => controller.start(),
+        // Read at call time, so toggling the checkbox takes effect with the next send.
+        start: () => (getSettings().parallelImage ? parallelController : holdController).start(),
         retry,
     };
 }

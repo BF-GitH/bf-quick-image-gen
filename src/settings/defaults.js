@@ -1,7 +1,7 @@
 // Settings template and validation. Pure: the store decides where the object lives.
 
 import { ASPECT_IDS, DEFAULT_MODELS, PROVIDER_IDS, QUALITY_IDS } from '../shared/constants.js';
-import { DEFAULT_INSTRUCTION } from '../prompt/scene.js';
+import { DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS } from '../prompt/scene.js';
 import { GALLERY_LIMIT } from '../gallery/records.js';
 
 const CONTEXT_MIN = 1;
@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     styleSuffix: '',
     useLlm: true,
     autoSaveDialog: false,
+    parallelImage: false,
     gallery: Object.freeze([]),
 });
 
@@ -56,6 +57,13 @@ function perProvider(source, mapValue) {
     return Object.fromEntries(PROVIDER_IDS.map((id) => [id, mapValue(from[id], id)]));
 }
 
+// An untouched old default is migrated so existing installs get the current wording.
+function normalizeInstruction(value) {
+    const instruction = toStr(value);
+    if (!instruction.trim() || LEGACY_DEFAULT_INSTRUCTIONS.includes(instruction)) return DEFAULT_INSTRUCTION;
+    return instruction;
+}
+
 function normalizeGallery(value) {
     if (!Array.isArray(value)) return [];
     return value
@@ -66,19 +74,19 @@ function normalizeGallery(value) {
 
 export function normalizeSettings(saved) {
     const src = isObject(saved) ? saved : {};
-    const instruction = toStr(src.instruction);
     return {
         provider: oneOf(src.provider, PROVIDER_IDS, DEFAULT_SETTINGS.provider),
         keys: perProvider(src.keys, (value) => toStr(value)),
         models: perProvider(src.models, (value, id) => toStr(value).trim() || DEFAULT_MODELS[id]),
         favorites: perProvider(src.favorites, (value) => uniqueStrings(value)),
-        instruction: instruction.trim() ? instruction : DEFAULT_INSTRUCTION,
+        instruction: normalizeInstruction(src.instruction),
         aspect: oneOf(src.aspect, ASPECT_IDS, DEFAULT_SETTINGS.aspect),
         quality: oneOf(src.quality, QUALITY_IDS, DEFAULT_SETTINGS.quality),
         contextMessages: toContextCount(src.contextMessages),
         styleSuffix: toStr(src.styleSuffix),
         useLlm: toBool(src.useLlm, DEFAULT_SETTINGS.useLlm),
         autoSaveDialog: toBool(src.autoSaveDialog, DEFAULT_SETTINGS.autoSaveDialog),
+        parallelImage: toBool(src.parallelImage, DEFAULT_SETTINGS.parallelImage),
         gallery: normalizeGallery(src.gallery),
     };
 }

@@ -6,7 +6,7 @@ import { getSettings } from './store.js';
 export const KEY_STATE_MESSAGES = Object.freeze({
     own: 'Eigener Key wird verwendet.',
     readable: 'Der in der App gespeicherte Key wird verwendet.',
-    locked: 'In der App ist ein Key gespeichert, aber für Erweiterungen gesperrt. Entweder in TauriTavern unter Einstellungen → Misc „Allow Keys Exposure“ einschalten und die App neu starten, oder den Key hier eintragen.',
+    locked: 'In der App ist ein Key gespeichert, aber für Erweiterungen gesperrt. Entweder in TauriTavern freigeben (User Settings → „TauriTavern Settings“ → Misc → „Allow Keys Exposure“, danach App neu starten) oder den Key hier eintragen.',
     missing: 'Kein Key gefunden. Key hier eintragen oder in der App bei den API-Verbindungen speichern.',
 });
 

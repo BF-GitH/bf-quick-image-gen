@@ -8,6 +8,7 @@ import { mountSettingsPanel } from './src/settings/panel.js';
 import { initSendWithImage } from './src/flow/send-with-image.js';
 import { generateTestImage } from './src/flow/generate-image.js';
 import { addWandEntry } from './src/wand/entry.js';
+import { installChatImageMenu } from './src/gallery/chat-image-menu.js';
 
 async function init() {
     await whenHostReady();
@@ -16,6 +17,7 @@ async function init() {
     getSettings();
     const flow = initSendWithImage();
     await mountSettingsPanel({ onTestImage: generateTestImage });
+    installChatImageMenu();
     const added = await addWandEntry({ onClick: () => flow.start() });
     if (!added) console.warn(`${LOG_PREFIX} wand menu not found, "Senden + Bild" is unavailable`);
 }

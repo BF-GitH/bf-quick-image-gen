@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    DEFAULT_INSTRUCTION, LIMITS, cleanMessageText, truncateText, collectContext, buildSceneBlock,
+    DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS, LIMITS, cleanMessageText, truncateText, collectContext, buildSceneBlock,
     buildLlmRequest, buildDirectPrompt, cleanLlmOutput, finalizePrompt,
 } from '../../src/prompt/scene.js';
 
@@ -17,10 +17,18 @@ function chat(count) {
     return Array.from({ length: count }, (_, i) => ({ name: i % 2 ? 'Anna' : 'Bob', text: `msg ${i}` }));
 }
 
-test('DEFAULT_INSTRUCTION is one line and starts as specified', () => {
+const BG = '[Background, reference only: looks and world]';
+const EARLIER = '[Earlier messages, context only]';
+const CURRENT = '[Current moment, depict this]';
+
+test('DEFAULT_INSTRUCTION is the exact single-line text', () => {
     assert.ok(!DEFAULT_INSTRUCTION.includes('\n'));
-    assert.ok(DEFAULT_INSTRUCTION.startsWith('Depict the current moment of this roleplay as one image:'));
-    assert.ok(DEFAULT_INSTRUCTION.endsWith('the current action from the latest messages.'));
+    assert.equal(DEFAULT_INSTRUCTION, 'Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.');
+});
+
+test('LEGACY_DEFAULT_INSTRUCTIONS holds the version 1.0 default exactly', () => {
+    assert.deepEqual([...LEGACY_DEFAULT_INSTRUCTIONS], ['Depict the current moment of this roleplay as one image: the characters present with their appearance (hair, eyes, build, clothing), their pose and expression, the location, lighting and mood. Take the characters\' looks and the setting from the first message and the current action from the latest messages.']);
+    assert.ok(Object.isFrozen(LEGACY_DEFAULT_INSTRUCTIONS));
 });
 
 test('collectContext always includes message 0 and never repeats it in recent', () => {
@@ -107,24 +115,47 @@ test('cleanMessageText decodes entities once and normalises whitespace', () => {
     assert.equal(cleanMessageText(undefined), '');
 });
 
-test('buildSceneBlock formats both sections', () => {
-    const block = buildSceneBlock({
-        first: { name: 'Bob', text: 'Hello' },
-        recent: [{ name: 'Anna', text: 'One' }, { name: 'Bob', text: 'Two' }],
-    });
-    assert.equal(block, '[First message of the chat]\nBob: Hello\n\n[Latest messages, oldest first]\nAnna: One\n\nBob: Two');
+const SCENE = {
+    first: { name: 'Bob', text: 'Hello' },
+    recent: [{ name: 'Anna', text: 'One' }, { name: 'Bob', text: 'Two' }, { name: 'Anna', text: 'Three' }],
+};
+
+test('buildSceneBlock default order: background, earlier, current (chat model weighs the end)', () => {
+    const expected = `${BG}\nBob: Hello\n\n${EARLIER}\nAnna: One\n\nBob: Two\n\n${CURRENT}\nAnna: Three`;
+    assert.equal(buildSceneBlock(SCENE), expected);
+    assert.equal(buildSceneBlock(SCENE, { currentFirst: false }), expected);
 });
 
-test('buildSceneBlock omits empty sections', () => {
-    assert.equal(buildSceneBlock({ first: { name: 'Bob', text: 'Hello' }, recent: [] }), '[First message of the chat]\nBob: Hello');
-    assert.equal(buildSceneBlock({ first: null, recent: [{ name: 'A', text: 'x' }] }), '[Latest messages, oldest first]\nA: x');
+test('buildSceneBlock currentFirst order: current, earlier, background (image model weighs the start)', () => {
+    assert.equal(
+        buildSceneBlock(SCENE, { currentFirst: true }),
+        `${CURRENT}\nAnna: Three\n\n${EARLIER}\nAnna: One\n\nBob: Two\n\n${BG}\nBob: Hello`,
+    );
+});
+
+test('buildSceneBlock: a single recent entry is the current moment and there is no earlier section', () => {
+    const scene = { first: { name: 'Bob', text: 'Hello' }, recent: [{ name: 'A', text: 'x' }] };
+    assert.equal(buildSceneBlock(scene), `${BG}\nBob: Hello\n\n${CURRENT}\nA: x`);
+    assert.equal(buildSceneBlock(scene, { currentFirst: true }), `${CURRENT}\nA: x\n\n${BG}\nBob: Hello`);
+    assert.ok(!buildSceneBlock(scene).includes(EARLIER));
+});
+
+test('buildSceneBlock omits empty sections (no background, no recent, nothing)', () => {
+    assert.equal(buildSceneBlock({ first: { name: 'Bob', text: 'Hello' }, recent: [] }), `${BG}\nBob: Hello`);
+    assert.equal(buildSceneBlock({ first: null, recent: [{ name: 'A', text: 'x' }] }), `${CURRENT}\nA: x`);
+    const noBackground = { first: null, recent: [{ name: 'A', text: 'x' }, { name: 'B', text: 'y' }] };
+    assert.equal(buildSceneBlock(noBackground), `${EARLIER}\nA: x\n\n${CURRENT}\nB: y`);
+    assert.equal(buildSceneBlock(noBackground, { currentFirst: true }), `${CURRENT}\nB: y\n\n${EARLIER}\nA: x`);
+    assert.ok(!buildSceneBlock(noBackground).includes(BG));
     assert.equal(buildSceneBlock({ first: null, recent: [] }), '');
+    assert.equal(buildSceneBlock({ first: null, recent: [] }, { currentFirst: true }), '');
 });
 
 test('buildLlmRequest and buildDirectPrompt use the exact templates', () => {
     const req = buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE' });
     assert.equal(req.prompt, 'Task: Do it\n\nSCENE\n\nImage prompt:');
-    assert.equal(req.systemPrompt, 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.');
+    assert.equal(req.systemPrompt, 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only if the current moment still takes place there. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.');
+    assert.ok(!req.systemPrompt.includes('\n'), 'system prompt is a single line');
     assert.equal(buildDirectPrompt({ instruction: 'Do it', sceneBlock: 'SCENE' }), 'Do it\n\nSCENE');
 });
 

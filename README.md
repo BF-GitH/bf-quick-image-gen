@@ -33,6 +33,13 @@ Disable or remove the original if you no longer want its palette button and sett
 3. While the image is generated a status bar appears above the input; "Text sofort zeigen" shows the reply
    without waiting for the image.
 4. If the image fails, the reply is shown anyway and a toast appears; tap it to retry for that message.
+5. The checkbox "Text sofort zeigen, Bild parallel erzeugen" switches to the parallel mode: the reply streams like a
+   normal send while the image is generated at the same time from the chat up to your message. The image is inserted
+   below the reply as soon as both are ready.
+6. Message 0 is used only as background information (what the characters and the world look like); the image shows
+   the current moment, the latest message.
+7. A long-press on a generated image in the chat opens the viewer with "Löschen" and "Auf Gerät speichern"
+   (on Android the host's own image controls only appear on hover).
 
 ## API keys
 
@@ -40,7 +47,8 @@ The key is resolved in this order:
 
 1. The key entered in the extension's own **API-Key** field.
 2. The key stored in the app for that provider (API connections). Extensions may only read it when
-   **Allow Keys Exposure** is on: TauriTavern Settings > Misc > "Allow Keys Exposure", then restart the app.
+   **Allow Keys Exposure** is on: User Settings (the person-with-gear icon) > "TauriTavern Settings" > Misc >
+   "Allow Keys Exposure", then restart the app.
    The settings panel shows which case applies.
 
 Keys are never logged or displayed.
