@@ -1201,3 +1201,22 @@ saveAfterAttach: true })`, failures through the retry toast). `retry` and `image
 - No existing test is deleted; the count does not drop (194 before). Version `1.3.0`.
 - Live test (orchestrator): SillyTavern test instance, `hidream-o1-image-dev` and `seedream-v4.5`, an uploaded
   reference, "Senden + Bild", the message button, the Referenzen tab.
+
+## 13. Key lookup without host errors (version 1.3.1, **BINDING**)
+
+Field report from the phone (TauriTavern, 2026-11-12): a red toast `Backend Error: Failed to find secret
+api_key_nanogpt: Permission denied: Keys exposure not allowed` at every start. Cause, read in the TauriTavern
+v2.4.0 source: every command that fails is published as a backend error and shown as a toast
+(`src/script.js`, `showBackendErrorToast`), and `find_secret` fails both when keys exposure is off and when no
+key is stored. The extension called `/api/secrets/find` on every key check. The switch itself is read once when
+the app starts (`composition/services/mod.rs`), so turning it on needs "Save" and a full restart of the app.
+
+`src/host/secrets.js` (replaces the request order of section 5.3; the two exports and their results stay):
+1. In parallel `POST /api/secrets/settings` -> `allowKeysExposure` (boolean, else unknown) and
+   `POST /api/secrets/read` -> whether the key is stored (unknown when the route fails).
+2. Not stored -> `missing`, no further request. Exposure off -> `locked`, no further request.
+3. Otherwise `POST /api/secrets/find`: a value -> `readable`; none -> `locked` when the key is stored, else `missing`.
+
+`/api/secrets/settings` and `/api/secrets/read` never fail in TauriTavern for these states, so no toast appears.
+Live check in SillyTavern 1.18 with the two answers simulated: exposure off and key not stored each caused no
+`find` request. On the phone itself this is unverified.

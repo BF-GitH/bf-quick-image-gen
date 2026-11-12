@@ -3,35 +3,57 @@
 
 import { postApi } from './st.js';
 
-export async function readStoredKey(secretKey) {
+async function postJson(path, body) {
     try {
-        // Both hosts refuse (403/404/500) unless "Allow Keys Exposure" is on; that is a normal outcome.
-        const response = await postApi('/api/secrets/find', { key: secretKey });
-        if (!response.ok) return null;
-        const data = await response.json();
-        const value = typeof data?.value === 'string' ? data.value.trim() : '';
-        return value || null;
+        const response = await postApi(path, body);
+        return response.ok ? await response.json() : null;
     } catch {
         return null;
     }
 }
 
-async function hasStoredKey(secretKey) {
+// -> true | false | null (the host did not say)
+async function isExposureAllowed() {
+    const data = await postJson('/api/secrets/settings', {});
+    return typeof data?.allowKeysExposure === 'boolean' ? data.allowKeysExposure : null;
+}
+
+// -> true | false | null (the host did not say)
+async function isKeyStored(secretKey) {
+    const state = await postJson('/api/secrets/read', {});
+    if (!state || typeof state !== 'object') return null;
+    const entry = state[secretKey];
+    return entry === true || (Array.isArray(entry) && entry.length > 0);
+}
+
+async function findKey(secretKey) {
+    const data = await postJson('/api/secrets/find', { key: secretKey });
+    const value = typeof data?.value === 'string' ? data.value.trim() : '';
+    return value || null;
+}
+
+// TauriTavern shows a red "Backend Error" toast for every find it refuses (keys exposure off) or cannot
+// answer (no key stored), so the key itself is asked for only when the two cheap questions say it can work.
+async function inspectKey(secretKey) {
+    const [allowed, stored] = await Promise.all([isExposureAllowed(), isKeyStored(secretKey)]);
+    if (stored === false) return { state: 'missing', value: null };
+    if (allowed === false) return { state: 'locked', value: null };
+    const value = await findKey(secretKey);
+    if (value) return { state: 'readable', value };
+    return { state: stored ? 'locked' : 'missing', value: null };
+}
+
+export async function readStoredKey(secretKey) {
     try {
-        const response = await postApi('/api/secrets/read', {});
-        if (!response.ok) return false;
-        const state = await response.json();
-        const entry = state?.[secretKey];
-        return entry === true || (Array.isArray(entry) && entry.length > 0);
+        return (await inspectKey(secretKey)).value;
     } catch {
-        return false;
+        return null;
     }
 }
 
 export async function getStoredKeyState(secretKey) {
     try {
-        if (await readStoredKey(secretKey)) return 'readable';
-        return (await hasStoredKey(secretKey)) ? 'locked' : 'missing';
+        return (await inspectKey(secretKey)).state;
     } catch {
         return 'missing';
     }
