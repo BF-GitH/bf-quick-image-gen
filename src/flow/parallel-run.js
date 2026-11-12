@@ -193,6 +193,11 @@ export function createParallelImageController({
         }, cfg.endedGraceMs);
     }
 
+    // Once the reply is known, a stop belongs to a later generation of the user, not to this send.
+    function onGenerationStopped() {
+        if (run && !run.reply) cancelRun(run);
+    }
+
     function onWatchdogTick(r) {
         if (run !== r || r.phase !== 'running' || r.reply) return;
         if (host.isGenerating()) {
@@ -207,7 +212,7 @@ export function createParallelImageController({
         host.onEvent('GENERATION_STARTED', onGenerationStarted),
         host.onEvent('MESSAGE_SENT', onMessageSent),
         host.onEvent('MESSAGE_RECEIVED', onMessageReceived),
-        host.onEvent('GENERATION_STOPPED', cancel),
+        host.onEvent('GENERATION_STOPPED', onGenerationStopped),
         host.onEvent('GENERATION_ENDED', onGenerationEnded),
         host.onEvent('CHAT_CHANGED', cancel),
     ];

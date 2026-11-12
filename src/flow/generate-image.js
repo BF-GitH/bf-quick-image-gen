@@ -17,6 +17,12 @@ import { uploadImage, saveToDevice, deleteImage } from '../host/images.js';
 const TEST_PROMPT = 'A cozy fantasy tavern interior at night, warm lantern light, wooden beams, detailed illustration';
 const REMOTE_ONLY_WARNING = 'Bild konnte nicht lokal gespeichert werden, es ist nur verlinkt.';
 const MESSAGE_GONE = 'Die Nachricht ist nicht mehr vorhanden.';
+// Lets the failure toast tell "nothing left to retry" apart from a failure worth retrying.
+export const MESSAGE_GONE_CODE = 'MESSAGE_GONE';
+
+function messageGoneError() {
+    return Object.assign(new Error(MESSAGE_GONE), { code: MESSAGE_GONE_CODE });
+}
 
 function throwIfAborted(signal) {
     if (signal?.aborted) throw new DOMException('Abgebrochen', 'AbortError');
@@ -82,7 +88,7 @@ export async function checkConfiguration() {
 // and the index would then name another message. Only the exact message, swipe and chat may get the image.
 export function captureMessage(messageIndex) {
     const message = getRawMessage(messageIndex);
-    if (!message) throw new Error(MESSAGE_GONE);
+    if (!message) throw messageGoneError();
     return { message, swipeId: message.swipe_id, chatId: getChatId() };
 }
 
@@ -121,7 +127,7 @@ export async function attachPreparedImage(messageIndex, prepared, { token, save 
     const { url, prompt, extension, providerId, model, folder, ts } = prepared;
     if (!isSameMessage(messageIndex, token) || !attachImageToMessage(messageIndex, { url, title: prompt })) {
         discardPreparedImage(prepared);
-        throw new Error(MESSAGE_GONE);
+        throw messageGoneError();
     }
     record({ url, prompt, providerId, model, character: folder });
     if (save) await saveChat();

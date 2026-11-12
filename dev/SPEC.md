@@ -542,6 +542,9 @@ Builds the controller with: host functions from `src/host`, `precheck = checkCon
 `processReply = (index, signal) => generateImageForMessage(index, { signal, saveBefore: true })`,
 `hold = createHold()`, and `onFailure` showing a sticky error toast
 `Bild fehlgeschlagen: <message> – Tippen zum Wiederholen.` whose click calls `retry(index)`.
+Exception: an error with `code === MESSAGE_GONE_CODE` (`'MESSAGE_GONE'`, exported by `generate-image.js` and set on
+every "message gone" error there) only shows `notify.warning(<message>)`, not sticky, without a click handler, and
+stores no failure entry: the index may already hold another message, which a retry would give the image.
 `retry`: refuse while the controller is active or the host generates, or when the chat id or the message object
 changed since the failure; otherwise show the status bar (cancel button labelled `Abbrechen`, the text is already
 visible) and run
@@ -679,7 +682,9 @@ Events (subscribed once at creation, removed by `dispose()`), all ignored withou
   `attachImage`.
 - `GENERATION_STARTED (type, options, dryRun)`, not a dry run and not `quiet`: clear a pending grace timer and
   reset the idle counter (a tool-call follow-up generation).
-- `GENERATION_STOPPED`: cancel.
+- `GENERATION_STOPPED` while no reply is known: cancel. Once the reply is known it is ignored: the stop belongs to a
+  later, unrelated generation (the chat-model prompt request aborts itself on that event and `buildImagePrompt` falls
+  back to the direct prompt, so the image job continues).
 - `GENERATION_ENDED` while no reply is known: (re)start a grace timer of `endedGraceMs`; when it fires and there is
   still no reply, cancel silently (the generation ended without a reply).
 - `CHAT_CHANGED`: cancel.
@@ -695,7 +700,7 @@ Required tests (fake host, manual event bus and timers, like `tests/flow`): repl
 `undefined`, later attach with `save: true`); image first then reply (attach with `save: false`, the listener's
 promise settles after the attach); image fails before the reply (`onFailure` at reply time with the reply index);
 image fails after the reply; stop before the reply (abort, a later resolving `prepareImage` is discarded, no
-`onFailure`); `GENERATION_ENDED` without a reply (grace, cancel, a ready image is discarded); `cancel()` during the
+`onFailure`); stop after the reply with the image pending (ignored, the image is attached later); `GENERATION_ENDED` without a reply (grace, cancel, a ready image is discarded); `cancel()` during the
 image job while the reply continues; `CHAT_CHANGED`; start-timeout; every early exit and a precheck failure (no
 click); empty tool-call message skipped and the real reply used; follow-up `GENERATION_STARTED` inside the grace
 time keeps the run; imaging timeout before and after the reply; watchdog cancel; the attach is called at most once;
@@ -764,7 +769,7 @@ corresponding texts and rules of section 5.12 and 5.20.
   current. Order with `currentFirst: true` (direct prompt for an image model, which weighs the start most): current,
   earlier, background.
 - `buildLlmRequest`: `prompt` keeps the shape `Task: <instruction>\n\n<sceneBlock>\n\nImage prompt:`. `systemPrompt`
-  (exact): `You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only if the current moment still takes place there. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.`
+  (exact): `You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.`
 - `fitContext({ first, recent }, budgetChars)` priorities: (1) the current entry is always kept, truncated to the
   budget if necessary; (2) earlier entries are added newest first while they fit (an entry that does not fit
   completely may be truncated if at least 80 characters of its text remain, else it and everything older is

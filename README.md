@@ -61,7 +61,9 @@ opens the system save dialog, once per image (optionally after every image, see 
 
 Keep the app in the foreground until the image has arrived: TauriTavern's background service ends with the chat
 reply, so Android may pause the image request while the app is in the background. With TauriTavern's optional chat
-virtualization, scrolling can show blank rows while a reply is held back.
+virtualization, scrolling can show blank rows while a reply is held back. In parallel mode with the chat model
+writing the image prompt, TauriTavern's "reply ready" notification can be missing when the reply finishes before
+that prompt request.
 
 ## Not verified
 

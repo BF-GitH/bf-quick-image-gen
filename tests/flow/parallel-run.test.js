@@ -127,6 +127,22 @@ test('stop before the reply: a rejecting prepareImage stays silent', async () =>
     assert.deepEqual(h.discards, []);
 });
 
+test('stop after the reply while the image is pending is ignored; the image is attached later', async () => {
+    const h = setupParallel();
+    await begin(h);
+    const replyIndex = pushReply(h.state);
+    receive(h, replyIndex);
+    await h.bus.emit('GENERATION_STOPPED');
+    assert.equal(h.jobs[0].signal.aborted, false);
+    assert.equal(h.controller.isActive(), true);
+    h.jobs[0].resolve({ url: 'img' });
+    await flush();
+    assert.deepEqual(h.attaches, [{ index: replyIndex, prepared: { url: 'img' }, token: { token: replyIndex }, save: true }]);
+    assertEnded(h);
+    assert.deepEqual(h.discards, []);
+    assert.deepEqual(h.failures, []);
+});
+
 test('GENERATION_ENDED without a reply: grace expires, cancel, the ready image is discarded', async () => {
     const h = setupParallel();
     await begin(h);

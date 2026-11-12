@@ -10,6 +10,7 @@ import {
     checkConfiguration,
     discardPreparedImage,
     generateImageForMessage,
+    MESSAGE_GONE_CODE,
     prepareImage,
 } from './generate-image.js';
 import { getSettings } from '../settings/store.js';
@@ -33,6 +34,13 @@ export function initSendWithImage() {
     let parallelController = null;
 
     function showFailure(index, error) {
+        // The index may already belong to another message, so a retry would attach the image there.
+        if (error?.code === MESSAGE_GONE_CODE) {
+            // An older toast for this index must not be able to start a retry either.
+            failures.delete(index);
+            notify.warning(error.message);
+            return;
+        }
         failures.set(index, { chatId: getChatId(), message: getRawMessage(index) });
         const reason = error?.message ?? String(error);
         notify.error(`Bild fehlgeschlagen: ${reason} – Tippen zum Wiederholen.`, {

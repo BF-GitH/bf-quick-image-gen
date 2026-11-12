@@ -9,7 +9,7 @@ export const LEGACY_DEFAULT_INSTRUCTIONS = Object.freeze([
 
 export const LIMITS = Object.freeze({ firstMessageChars: 2500, messageChars: 1500 });
 
-const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only if the current moment still takes place there. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.';
+const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.';
 
 const THINK_BLOCKS = /<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 const CODE_BLOCKS = /<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;

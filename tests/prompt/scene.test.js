@@ -154,7 +154,7 @@ test('buildSceneBlock omits empty sections (no background, no recent, nothing)',
 test('buildLlmRequest and buildDirectPrompt use the exact templates', () => {
     const req = buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE' });
     assert.equal(req.prompt, 'Task: Do it\n\nSCENE\n\nImage prompt:');
-    assert.equal(req.systemPrompt, 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only if the current moment still takes place there. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.');
+    assert.equal(req.systemPrompt, 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.');
     assert.ok(!req.systemPrompt.includes('\n'), 'system prompt is a single line');
     assert.equal(buildDirectPrompt({ instruction: 'Do it', sceneBlock: 'SCENE' }), 'Do it\n\nSCENE');
 });
