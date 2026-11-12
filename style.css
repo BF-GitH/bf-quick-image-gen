@@ -1,0 +1,267 @@
+/* BF Quick Image Gen. Mobile first (drawer ~360 px), themed only through the host's SmartTheme variables. */
+
+.bfqig-settings {
+    --bfqig-danger: #d9534f;
+    --bfqig-touch: 40px;
+}
+
+.bfqig-settings .bfqig-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bfqig-settings .bfqig-tabs {
+    display: flex;
+    gap: 6px;
+}
+
+.bfqig-settings .bfqig-tab {
+    flex: 1 1 0;
+    min-height: var(--bfqig-touch);
+    margin: 0;
+    justify-content: center;
+    opacity: 0.7;
+}
+
+.bfqig-settings .bfqig-tab.bfqig-tab-active {
+    opacity: 1;
+    border-color: var(--SmartThemeQuoteColor);
+    box-shadow: inset 0 -2px 0 var(--SmartThemeQuoteColor);
+}
+
+.bfqig-settings .bfqig-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bfqig-settings .bfqig-pane[hidden] {
+    display: none;
+}
+
+.bfqig-settings .bfqig-label {
+    margin-top: 6px;
+    font-weight: bold;
+}
+
+/* 16 px stops mobile browsers from zooming into focused fields. */
+.bfqig-settings input.text_pole,
+.bfqig-settings select.text_pole,
+.bfqig-settings textarea.text_pole {
+    width: 100%;
+    min-height: var(--bfqig-touch);
+    margin: 0;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.bfqig-settings textarea.text_pole {
+    min-height: 8em;
+    resize: vertical;
+}
+
+.bfqig-settings .menu_button {
+    min-height: var(--bfqig-touch);
+    min-width: var(--bfqig-touch);
+    margin: 0;
+}
+
+.bfqig-settings .menu_button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.bfqig-settings .bfqig-wide {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.bfqig-settings .bfqig-row {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+}
+
+.bfqig-settings .bfqig-row select.text_pole {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.bfqig-settings .bfqig-icon-button {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bfqig-settings .bfqig-icon-button[aria-pressed="true"] .fa-star {
+    color: var(--SmartThemeQuoteColor);
+}
+
+.bfqig-settings .bfqig-model-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bfqig-settings .bfqig-note,
+.bfqig-viewer .bfqig-note {
+    font-size: 0.9em;
+    opacity: 0.8;
+    overflow-wrap: anywhere;
+}
+
+.bfqig-settings .bfqig-note:empty {
+    display: none;
+}
+
+.bfqig-settings #bfqig-key-status[data-state="locked"],
+.bfqig-settings #bfqig-key-status[data-state="missing"],
+.bfqig-settings #bfqig-model-info[data-state="error"] {
+    color: var(--bfqig-danger);
+    opacity: 1;
+}
+
+.bfqig-settings .bfqig-check {
+    min-height: var(--bfqig-touch);
+    align-items: center;
+}
+
+.bfqig-settings .bfqig-check input[type="checkbox"] {
+    flex: 0 0 auto;
+}
+
+.bfqig-settings .bfqig-advanced {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 4px 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+}
+
+.bfqig-settings .bfqig-advanced > summary {
+    min-height: var(--bfqig-touch);
+    display: flex;
+    align-items: center;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* Gallery: square thumbnails, about three per row on a phone drawer. */
+.bfqig-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.bfqig-gallery-grid .bfqig-gallery-item {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor);
+    cursor: pointer;
+}
+
+.bfqig-gallery-grid .bfqig-gallery-item img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Viewer: full screen on phones; TauriTavern's mobile surface attribute keeps it above its own chrome. */
+.bfqig-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--SmartThemeBlurTintColor);
+    backdrop-filter: blur(8px);
+    box-sizing: border-box;
+}
+
+.bfqig-viewer .bfqig-viewer-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    max-width: 900px;
+    max-height: 100%;
+    padding: 12px;
+    overflow-y: auto;
+    color: var(--SmartThemeBodyColor);
+    box-sizing: border-box;
+}
+
+.bfqig-viewer .bfqig-viewer-image {
+    display: block;
+    width: 100%;
+    max-height: 65vh;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.bfqig-viewer .bfqig-viewer-prompt {
+    margin: 0;
+    font-size: 0.95em;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.bfqig-viewer .bfqig-viewer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.bfqig-viewer .bfqig-viewer-button {
+    flex: 1 1 30%;
+    min-height: 44px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.bfqig-viewer #bfqig-viewer-delete {
+    color: var(--bfqig-danger, #d9534f);
+    border-color: #d9534f;
+}
+
+/* Status bar sits directly above the composer while a reply is held back. */
+.bfqig-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--bfqig-touch, 40px);
+    padding: 4px 10px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    box-sizing: border-box;
+}
+
+.bfqig-status .bfqig-status-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.bfqig-status #bfqig-status-cancel {
+    flex: 0 0 auto;
+    min-height: 40px;
+    margin: 0;
+    white-space: nowrap;
+}

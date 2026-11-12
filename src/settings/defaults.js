@@ -1,0 +1,90 @@
+// Settings template and validation. Pure: the store decides where the object lives.
+
+import { ASPECT_IDS, DEFAULT_MODELS, PROVIDER_IDS, QUALITY_IDS } from '../shared/constants.js';
+import { DEFAULT_INSTRUCTION } from '../prompt/scene.js';
+import { GALLERY_LIMIT } from '../gallery/records.js';
+
+const CONTEXT_MIN = 1;
+const CONTEXT_MAX = 20;
+
+export const DEFAULT_SETTINGS = Object.freeze({
+    provider: 'nanogpt',
+    keys: Object.freeze({ nanogpt: '', openrouter: '' }),
+    models: Object.freeze({ ...DEFAULT_MODELS }),
+    favorites: Object.freeze({ nanogpt: Object.freeze([]), openrouter: Object.freeze([]) }),
+    instruction: DEFAULT_INSTRUCTION,
+    aspect: '1:1',
+    quality: 'standard',
+    contextMessages: 4,
+    styleSuffix: '',
+    useLlm: true,
+    autoSaveDialog: false,
+    gallery: Object.freeze([]),
+});
+
+function isObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toStr(value) {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return '';
+}
+
+function oneOf(value, allowed, fallback) {
+    return allowed.includes(value) ? value : fallback;
+}
+
+function toBool(value, fallback) {
+    return typeof value === 'boolean' ? value : fallback;
+}
+
+function toContextCount(value) {
+    const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+    if (typeof number !== 'number' || !Number.isFinite(number)) return DEFAULT_SETTINGS.contextMessages;
+    return Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, Math.trunc(number)));
+}
+
+function uniqueStrings(value) {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.filter((item) => typeof item === 'string' && item !== ''))];
+}
+
+function perProvider(source, mapValue) {
+    const from = isObject(source) ? source : {};
+    return Object.fromEntries(PROVIDER_IDS.map((id) => [id, mapValue(from[id], id)]));
+}
+
+function normalizeGallery(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+        .filter((entry) => isObject(entry) && typeof entry.url === 'string' && entry.url !== '')
+        .map((entry) => ({ ...entry }))
+        .slice(0, GALLERY_LIMIT);
+}
+
+export function normalizeSettings(saved) {
+    const src = isObject(saved) ? saved : {};
+    const instruction = toStr(src.instruction);
+    return {
+        provider: oneOf(src.provider, PROVIDER_IDS, DEFAULT_SETTINGS.provider),
+        keys: perProvider(src.keys, (value) => toStr(value)),
+        models: perProvider(src.models, (value, id) => toStr(value).trim() || DEFAULT_MODELS[id]),
+        favorites: perProvider(src.favorites, (value) => uniqueStrings(value)),
+        instruction: instruction.trim() ? instruction : DEFAULT_INSTRUCTION,
+        aspect: oneOf(src.aspect, ASPECT_IDS, DEFAULT_SETTINGS.aspect),
+        quality: oneOf(src.quality, QUALITY_IDS, DEFAULT_SETTINGS.quality),
+        contextMessages: toContextCount(src.contextMessages),
+        styleSuffix: toStr(src.styleSuffix),
+        useLlm: toBool(src.useLlm, DEFAULT_SETTINGS.useLlm),
+        autoSaveDialog: toBool(src.autoSaveDialog, DEFAULT_SETTINGS.autoSaveDialog),
+        gallery: normalizeGallery(src.gallery),
+    };
+}
+
+export function toggleFavorite(list, modelId) {
+    const current = uniqueStrings(list);
+    if (typeof modelId !== 'string' || modelId === '') return current;
+    return current.includes(modelId) ? current.filter((id) => id !== modelId) : [...current, modelId];
+}

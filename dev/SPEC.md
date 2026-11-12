@@ -125,12 +125,19 @@ export function getParticipantNames()         // { user, character }
 export function getImageFolderName()          // character name; group name for groups; fallback EXTENSION_ID
 export function isMessageRendered(index)      // element #chat .mes[mesid="index"] exists
 export function attachImageToMessage(index, { url, title })  // -> boolean (false if the message is gone). Mutates extra per section 2, re-renders media via ctx.appendMediaToMessage(message, $(element)) only if rendered. Does NOT save.
+export function detachImageFromChat(url)      // -> number of messages changed. Removes media entries with that url from every message of the open chat. Does NOT save.
 export async function saveChat()              // await ctx.saveChat(); logs and swallows errors
 export function scrollChatToBottom()          // optional chaining on the context function
 ```
 `attachImageToMessage` exact mutation: create `extra` if not an object; call `ctx.ensureMessageMediaIsArray?.(message)`;
 ensure `extra.media` is an array; if it is empty and `extra.media_display` is unset, set `media_display = 'gallery'`;
 push `{ url, type: 'image', title, source: 'generated' }`; `media_index = media.length - 1`; `inline_image = true`.
+
+`detachImageFromChat` mirrors the host's own "delete one" media handler (`deleteMessageMedia` in
+`public/scripts/chats.js`, same code in both hosts): urls match after stripping leading slashes; per matching
+entry (highest position first) `media.splice(position, 1)`, and if `media_index === position` it becomes
+`clamp(position > 0 ? position - 1 : 0, 0, media.length - 1)`. The last image leaves `media = []` (the host
+renders that as no media). A mounted message is re-rendered with `ctx.appendMediaToMessage(message, $(element), 'keep')`.
 
 ### 5.5 HOST: `src/host/images.js`
 ```js
@@ -307,9 +314,9 @@ export function createSendWithImageController({ host, precheck, processReply, ho
 Dependencies: `host = { isChatOpen, isGenerating, getComposerText, clickSend, getChatLength, getRawMessage,
 disableStreamingOnce, onEvent(eventKey, handler) -> unsubscribe }`; `precheck: async () => void` (throws Error with a
 user-facing message); `processReply: async (messageIndex, signal) => void`; `hold = { engage(userIndex), release(),
-setStatus(text | null, { onCancel } = {}) }`; `notify = { warning(msg), error(msg) }`;
+setStatus(text | null, { onCancel, cancelLabel } = {}) }`; `notify = { warning(msg), error(msg) }`;
 `onFailure(messageIndex, error)` optional; `timers = { setTimeout, clearTimeout, setInterval, clearInterval }` default
-`globalThis`; `config = { startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000 }` defaults.
+`globalThis`; `config = { startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000 }` defaults.
 
 `start()`:
 1. Already active -> `notify.warning(MESSAGES.busy)`, false. No chat -> `MESSAGES.noChat`. Host generating ->
@@ -322,16 +329,20 @@ setStatus(text | null, { onCancel } = {}) }`; `notify = { warning(msg), error(ms
 
 Events (subscribed once at creation through `host.onEvent`, removed by `dispose()`):
 - `GENERATION_STARTED (type, options, dryRun)`: ignore without a run, when `dryRun === true`, or `type === 'quiet'`.
-  In phase `armed`: phase becomes `generating`, clear the start-timeout.
+  In phase `armed`: phase becomes `generating`, clear the start-timeout. In phase `imaging` (streaming leaves the
+  host UI unlocked): only `hold.release()`; the image job keeps running and the status bar stays.
 - `CHAT_COMPLETION_SETTINGS_READY`: when the phase is not `armed`, call and clear `restoreStreaming`.
 - `MESSAGE_SENT (index)`: while `armed`/`generating` and index is an integer: `userIndex = index`, `hold.engage(index)`.
 - `MESSAGE_RECEIVED (index, type)`: ignore without a run, when already handled, when `type === 'first_message'`,
   when `index <= userIndex`, or when the message is missing / `is_user` / `is_system`. Otherwise mark handled,
   phase `imaging`, clear timers, `hold.setStatus(MESSAGES.statusImage, { onCancel: cancel })`, then
-  `await processReply(index, abort.signal)`. Errors: an abort (signal aborted or error name `AbortError`) is silent;
-  anything else calls `onFailure(index, error)`. Always finish afterwards. **The listener must return the promise**
-  so the host waits for it.
-- `GENERATION_STOPPED`: abort; finish unless the phase is `imaging` (there the pending `processReply` finishes).
+  `processReply(index, abort.signal)`, raced against the abort signal and an imaging timeout of `imagingTimeoutMs`
+  (set through `timers`, always cleared): the chat-model call inside `processReply` ignores the signal, so the
+  listener settles as soon as the signal aborts. Timeout: `onFailure(index, new Error(MESSAGES.imageTimeout))`, then
+  abort. Errors: an abort (signal aborted or error name `AbortError`) is silent; anything else calls
+  `onFailure(index, error)`. A `processReply` that settles after the race is ignored (no unhandled rejection, no
+  `onFailure`). Always finish afterwards. **The listener must return the promise** so the host waits for it.
+- `GENERATION_STOPPED`: abort; finish unless the phase is `imaging` (there the aborted race finishes).
 - `GENERATION_ENDED`: ignore without a run, when handled, or in phase `armed`. Otherwise (re)start a grace timer of
   `endedGraceMs`; when it fires and the run is still unhandled, finish. (Streaming emits ENDED before RECEIVED.)
 - `CHAT_CHANGED`: abort and finish.
@@ -346,7 +357,10 @@ Required tests (fake host with a manual event bus, manual timers): happy path no
 (ENDED then RECEIVED inside the grace time); no reply (ENDED, grace expires); stop during the LLM phase; stop during
 imaging (signal aborted, no `onFailure`); `processReply` failure -> `onFailure`; precheck failure (no click);
 each early-exit warning; start-timeout; chat change during imaging; ignored MESSAGE_RECEIVED variants; dry-run and
-quiet GENERATION_STARTED ignored; second `start()` while active; watchdog finish; streaming restored exactly once.
+quiet GENERATION_STARTED ignored; second `start()` while active; watchdog finish; streaming restored exactly once;
+cancel / CHAT_CHANGED / GENERATION_STOPPED during imaging with a `processReply` that never settles; imaging timeout;
+`processReply` rejecting after a cancel is silent; normal resolve clears the imaging timeout; a new generation during
+imaging only releases the hold.
 
 ### 5.14 PURE: `src/gallery/records.js`
 ```js
@@ -428,12 +442,13 @@ export function openImageViewer(record)
 ```
 Grid of lazy-loaded thumbnails (`<img loading="lazy">`), newest first. Viewer: image, prompt, model, date, buttons
 "Auf Gerät speichern" (`saveToDevice(url, 'tauri_<timestampName()>.<ext>')`), "Löschen" (after `confirmDialog`:
-`deleteImage` then `removeGalleryRecord`), "Schließen". Tap on the backdrop closes.
+`deleteImage` then `removeGalleryRecord` then `detachImageFromChat(url)`; if that changed a message, `await saveChat()`),
+"Schließen". Tap on the backdrop closes.
 
 ### 5.19 UI: `src/wand/entry.js`, `src/flow/hold.js`
 ```js
 export async function addWandEntry({ onClick })   // -> boolean. Waits up to 30 s for #extensionsMenu, idempotent
-export function createHold()                      // -> { engage(userIndex), release(), setStatus(text | null, { onCancel } = {}) }
+export function createHold()                      // -> { engage(userIndex), release(), setStatus(text | null, { onCancel, cancelLabel } = {}) }
 ```
 Wand markup (**BINDING**): `<div id="bfqig_wand_container" class="extension_container"><div id="bfqig_send_with_image"
 class="list-group-item flex-container flexGap5" role="button" tabindex="0" title="Text senden und Antwort mit Bild
@@ -441,8 +456,8 @@ erhalten"><div class="fa-fw fa-solid fa-image extensionsMenuExtensionButton"></d
 appended to `#extensionsMenu`. The host closes the menu itself.
 `engage(userIndex)`: one `<style id="bfqig-hold-style">` with the rule
 `#chat .mes[mesid="<userIndex>"] ~ .mes { display: none !important; }` (replace the rule on repeated calls).
-`release()` removes it. `setStatus(text, { onCancel })`: a bar `#bfqig-status` (spinner icon, text, and a button
-`#bfqig-status-cancel` labelled "Text sofort zeigen" only when `onCancel` is given) inserted directly before
+`release()` removes it. `setStatus(text, { onCancel, cancelLabel })`: a bar `#bfqig-status` (spinner icon, text, and a
+button `#bfqig-status-cancel` labelled `cancelLabel`, default "Text sofort zeigen", only when `onCancel` is given) inserted directly before
 `#send_form` (fallback: appended to `document.body`); `null` removes it.
 
 ### 5.20 WIRING: `src/prompt/build.js`
@@ -463,7 +478,8 @@ export async function generateTestImage({ signal } = {})                     // 
 settings -> provider -> model (`settings.models[id] || provider.defaultModel`) -> `resolveApiKey` ->
 `saveBefore ? saveChat()` -> `getModelInfo` -> `buildImagePrompt` (`maxPromptChars = min(modelInfo?.maxPromptChars ?? 1800, 4000)`)
 -> `provider.generateImage` -> if `remoteUrl`: use it as url and `notify.warning(...)`; else `uploadImage` with
-`extensionForMime(mime)`, `folder: getImageFolderName()`, `fileName: 'bfqig_' + timestampName()` ->
+`extensionForMime(mime)`, `folder: getImageFolderName()`, `fileName: 'bfqig_' + timestampName()` (aborted right after
+the upload: `deleteImage(url)` without awaiting, then the `AbortError`, so no orphaned file stays) ->
 `attachImageToMessage` (false -> `Error('Die Nachricht ist nicht mehr vorhanden.')`) -> `addGalleryRecord` ->
 `saveAfterAttach ? saveChat()` -> if `settings.autoSaveDialog` and not remote: `saveToDevice(url, 'tauri_<ts>.<ext>')`
 without awaiting (log failures).
@@ -479,7 +495,8 @@ Builds the controller with: host functions from `src/host`, `precheck = checkCon
 `hold = createHold()`, and `onFailure` showing a sticky error toast
 `Bild fehlgeschlagen: <message> – Tippen zum Wiederholen.` whose click calls `retry(index)`.
 `retry`: refuse while the controller is active or the host generates, or when the chat id or the message object
-changed since the failure; otherwise show the status bar and run
+changed since the failure; otherwise show the status bar (cancel button labelled `Abbrechen`, the text is already
+visible) and run
 `generateImageForMessage(index, { signal, saveAfterAttach: true })`; failures show the same toast again.
 `index.js`: `whenHostReady()` -> `repairStreamingFlag()` -> `getSettings()` -> `initSendWithImage()` ->
 `mountSettingsPanel({ onTestImage: generateTestImage })` -> `addWandEntry({ onClick: () => flow.start() })`;
@@ -509,7 +526,8 @@ a failing init is logged with `LOG_PREFIX` and never throws.
 | gallery hint | `Bilder liegen im Datenordner der App (user/images). Android lässt Erweiterungen nicht still in den Download-Ordner schreiben: „Auf Gerät speichern“ öffnet den System-Dialog, dort z. B. Download/tauri wählen.` |
 | gallery empty | `Noch keine Bilder.` |
 | viewer buttons | `Auf Gerät speichern`, `Löschen`, `Schließen` |
-| delete confirm | `Bild endgültig löschen? Es verschwindet auch aus der Chat-Nachricht.` |
+| delete confirm | `Bild endgültig löschen? Es fehlt dann auch in der Chat-Nachricht.` |
+| status cancel button | `Text sofort zeigen` (default), `Abbrechen` (retry) |
 | `MESSAGES.busy` | `Es läuft bereits ein Bild-Auftrag.` |
 | `MESSAGES.noChat` | `Kein Chat geöffnet.` |
 | `MESSAGES.generating` | `Es läuft bereits eine Generierung.` |
@@ -519,6 +537,7 @@ a failing init is logged with `LOG_PREFIX` and never throws.
 | `MESSAGES.notStarted` | `Senden wurde nicht gestartet.` |
 | `MESSAGES.statusReply` | `Antwort wird erstellt …` |
 | `MESSAGES.statusImage` | `Bild wird generiert …` |
+| `MESSAGES.imageTimeout` | `Zeitüberschreitung bei der Bilderstellung.` |
 | remote-only warning | `Bild konnte nicht lokal gespeichert werden, es ist nur verlinkt.` |
 
 ## 7. Verification

@@ -1,0 +1,126 @@
+// Gallery grid and full-screen viewer. All record text goes through textContent (prompts are untrusted).
+
+import { LOG_PREFIX } from '../shared/constants.js';
+import { extensionForMime } from '../providers/http.js';
+import { notify, confirmDialog, timestampName } from '../host/st.js';
+import { deleteImage, saveToDevice } from '../host/images.js';
+import { detachImageFromChat, saveChat } from '../host/chat.js';
+import { listRecords, removeGalleryRecord, onGalleryChange } from './store.js';
+
+const TEXT = Object.freeze({
+    empty: 'Noch keine Bilder.',
+    save: 'Auf Gerät speichern',
+    remove: 'Löschen',
+    close: 'Schließen',
+    confirmDelete: 'Bild endgültig löschen? Es fehlt dann auch in der Chat-Nachricht.',
+    saveFailed: 'Speichern fehlgeschlagen: ',
+    deleteFailed: 'Löschen fehlgeschlagen: ',
+});
+
+function el(tag, props = {}) {
+    return Object.assign(document.createElement(tag), props);
+}
+
+function fileExtension(url) {
+    const match = /\.(png|jpe?g|webp|gif)(?:[?#]|$)/i.exec(String(url));
+    if (!match) return 'png';
+    const ext = match[1].toLowerCase();
+    return extensionForMime(`image/${ext === 'jpg' ? 'jpeg' : ext}`);
+}
+
+function formatDate(timestamp) {
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('de-DE');
+}
+
+function iconButton(id, icon, label) {
+    const button = el('button', { id, type: 'button', className: 'menu_button bfqig-viewer-button' });
+    button.append(el('i', { className: `fa-solid ${icon}` }), el('span', { textContent: label }));
+    return button;
+}
+
+export function openImageViewer(record) {
+    document.getElementById('bfqig-viewer')?.remove();
+    const overlay = el('div', { id: 'bfqig-viewer', className: 'bfqig-viewer' });
+    overlay.dataset.ttMobileSurface = 'fullscreen-window';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    const panel = el('div', { className: 'bfqig-viewer-panel' });
+    const image = el('img', { className: 'bfqig-viewer-image', src: record.url, alt: String(record.prompt ?? '') });
+    const prompt = el('p', { className: 'bfqig-viewer-prompt', textContent: String(record.prompt ?? '') });
+    const meta = [record.model, record.character, formatDate(record.timestamp)].filter(Boolean).join(' · ');
+    const details = el('p', { className: 'bfqig-note', textContent: meta });
+    const actions = el('div', { className: 'bfqig-viewer-actions' });
+    const save = iconButton('bfqig-viewer-save', 'fa-download', TEXT.save);
+    const remove = iconButton('bfqig-viewer-delete', 'fa-trash-can', TEXT.remove);
+    const close = iconButton('bfqig-viewer-close', 'fa-xmark', TEXT.close);
+    actions.append(save, remove, close);
+    panel.append(image, prompt, details, actions);
+    overlay.append(panel);
+
+    const onKey = (event) => {
+        if (event.key === 'Escape') closeViewer();
+    };
+    function closeViewer() {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+    }
+
+    overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) closeViewer();
+    });
+    close.addEventListener('click', closeViewer);
+    save.addEventListener('click', async () => {
+        save.disabled = true;
+        try {
+            await saveToDevice(record.url, `tauri_${timestampName()}.${fileExtension(record.url)}`);
+        } catch (error) {
+            notify.error(TEXT.saveFailed + (error?.message || String(error)));
+        } finally {
+            save.disabled = false;
+        }
+    });
+    remove.addEventListener('click', async () => {
+        if (!(await confirmDialog(TEXT.confirmDelete))) return;
+        try {
+            // A false result usually means the file is already gone; the record must go either way.
+            const deleted = await deleteImage(record.url);
+            if (!deleted) console.warn(LOG_PREFIX, 'Image file could not be deleted', record.url);
+            removeGalleryRecord(record.url);
+            // Otherwise the chat message keeps a media entry pointing at the deleted file.
+            if (detachImageFromChat(record.url) > 0) await saveChat();
+            closeViewer();
+        } catch (error) {
+            notify.error(TEXT.deleteFailed + (error?.message || String(error)));
+        }
+    });
+
+    document.addEventListener('keydown', onKey);
+    document.body.append(overlay);
+    close.focus();
+}
+
+export function createGalleryView() {
+    const element = el('div', { className: 'bfqig-gallery' });
+    const empty = el('p', { id: 'bfqig-gallery-empty', className: 'bfqig-note', textContent: TEXT.empty });
+    const grid = el('div', { id: 'bfqig-gallery-grid', className: 'bfqig-gallery-grid' });
+    element.append(empty, grid);
+
+    function refresh() {
+        const records = listRecords();
+        empty.hidden = records.length > 0;
+        grid.replaceChildren(...records.map((record) => {
+            const item = el('button', { type: 'button', className: 'bfqig-gallery-item' });
+            item.title = [record.model, formatDate(record.timestamp)].filter(Boolean).join(' · ');
+            // loading must be set before src, otherwise the browser starts fetching eagerly.
+            item.append(el('img', { loading: 'lazy', decoding: 'async', alt: String(record.prompt ?? ''), src: record.url }));
+            item.addEventListener('click', () => openImageViewer(record));
+            return item;
+        }));
+    }
+
+    onGalleryChange(refresh);
+    refresh();
+    return { element, refresh };
+}
