@@ -3,7 +3,7 @@
 import { LOG_PREFIX, PROVIDER_IDS, ASPECT_IDS, QUALITY_IDS } from '../shared/constants.js';
 import { getProvider } from '../providers/index.js';
 import { DEFAULT_INSTRUCTION } from '../prompt/scene.js';
-import { notify } from '../host/st.js';
+import { notify, onHostEvent } from '../host/st.js';
 import { getSettings, updateSettings } from './store.js';
 import { describeKeyState } from './keys.js';
 import { createModelPicker } from './model-picker.js';
@@ -11,6 +11,8 @@ import { createGalleryView, openImageViewer } from '../gallery/view.js';
 import { listRecords } from '../gallery/store.js';
 
 const KEY_DEBOUNCE_MS = 500;
+const KEY_CHECKING_TEXT = 'Key wird geprüft …';
+const KEY_EVENTS = Object.freeze(['SECRET_WRITTEN', 'SECRET_DELETED', 'SECRET_ROTATED', 'SECRET_EDITED']);
 
 const ASPECT_LABELS = Object.freeze({
     '1:1': 'Quadrat 1:1', '2:3': 'Hochformat 2:3', '3:4': 'Hochformat 3:4', '9:16': 'Hochformat 9:16',
@@ -34,7 +36,10 @@ const MARKUP = `
       <label class="bfqig-label" for="bfqig-provider">Anbieter</label>
       <select id="bfqig-provider" class="text_pole"></select>
       <label class="bfqig-label" for="bfqig-key">API-Key</label>
-      <input id="bfqig-key" type="password" class="text_pole" autocomplete="off" spellcheck="false" placeholder="leer = gespeicherten Key der App verwenden">
+      <div class="bfqig-row">
+        <input id="bfqig-key" type="password" class="text_pole" autocomplete="off" spellcheck="false" placeholder="leer = gespeicherten Key der App verwenden">
+        <button type="button" id="bfqig-key-refresh" class="menu_button bfqig-icon-button" title="Key-Status neu prüfen" aria-label="Key-Status neu prüfen"><i class="fa-solid fa-rotate"></i></button>
+      </div>
       <div id="bfqig-key-status" class="bfqig-note" aria-live="polite"></div>
       <label class="bfqig-label" for="bfqig-model">Modell</label>
       <div class="bfqig-model-slot"></div>
@@ -107,26 +112,36 @@ function wireTabs(root, onGallery) {
 
 function createKeyStatus(root) {
     const status = root.querySelector('#bfqig-key-status');
+    const button = root.querySelector('#bfqig-key-refresh');
     let sequence = 0;
     let timer = null;
+    const show = (text, state) => {
+        status.textContent = text;
+        status.dataset.state = state;
+    };
     async function refresh() {
         clearTimeout(timer);
         const token = ++sequence;
+        show(KEY_CHECKING_TEXT, 'checking');
+        button.disabled = true;
         try {
             const { state, message } = await describeKeyState(getProvider(getSettings().provider));
             if (token !== sequence) return;
-            status.textContent = message;
-            status.dataset.state = state;
+            show(message, state);
         } catch (error) {
             if (token !== sequence) return;
-            status.textContent = error?.message || String(error);
-            status.dataset.state = 'missing';
+            show(error?.message || String(error), 'missing');
         }
+        // Superseded runs returned above: text and button belong to the newest run.
+        button.disabled = false;
     }
     const later = () => {
         clearTimeout(timer);
         timer = setTimeout(refresh, KEY_DEBOUNCE_MS);
     };
+    button.addEventListener('click', () => refresh());
+    // A key saved, removed or switched in the app's API connections changes what describeKeyState finds.
+    for (const eventKey of KEY_EVENTS) onHostEvent(eventKey, () => refresh());
     return { refresh, later };
 }
 

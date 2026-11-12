@@ -8,8 +8,11 @@ image of the current scene has been generated and attached to it, then text and 
 A normal send is never affected. The UI is German.
 
 - Image providers: **NanoGPT** and **OpenRouter** (their dedicated image APIs). Nothing else.
-- The image prompt always includes **message 0** of the chat (character looks, setting) plus the latest N messages.
-- By default the chat model writes the image prompt; if that fails the extension falls back to a direct prompt.
+- The image prompt always includes **message 0** of the chat (character looks, setting) plus the latest N messages,
+  and the description from the **character card**.
+- By default the chat model writes the image prompt as a short tag list (at most 20 tags, the most important
+  first); if that fails the extension falls back to a direct prompt. A character from a published work is named
+  with its work (`hermione granger, harry potter`), which is what anime models recognise.
 - A **Galerie** tab lists every generated image.
 
 ## Install
@@ -41,6 +44,19 @@ Disable or remove the original if you no longer want its palette button and sett
 7. A long-press on a generated image in the chat opens the viewer with "Löschen" and "Auf Gerät speichern"
    (on Android the host's own image controls only appear on hover).
 
+### Prompt and models
+
+- The default prompt shows `{{char}}` through the eyes of `{{user}}`; the user is not in the picture. Change the
+  text under "Prompt" to show someone else. An install that still has an old default gets the new one
+  automatically; a text you changed is kept ("Standard" restores the default).
+- Anime models on NanoGPT that draw known characters well with this prompt: `wai-illustrious-sdxl`
+  (WAI Illustrious SDXL, fast and cheap) and `anima/text-to-image` (Anima, slower, keeps more detail).
+  `flux-schnell` does not know most characters.
+- SDXL-based models (all the anime ones) read only about the first 75 tokens of a prompt. That is why the prompt
+  is a short tag list and why "Stil-Zusatz" is put in front of it.
+- A reasoning chat model needs room to think: for the image prompt the reply length of a chat-completion preset
+  is raised to 2000 tokens for that one request.
+
 ## API keys
 
 The key is resolved in this order:
@@ -49,7 +65,8 @@ The key is resolved in this order:
 2. The key stored in the app for that provider (API connections). Extensions may only read it when
    **Allow Keys Exposure** is on: User Settings (the person-with-gear icon) > "TauriTavern Settings" > Misc >
    "Allow Keys Exposure", then restart the app.
-   The settings panel shows which case applies.
+   The settings panel shows which case applies. The status follows the app when a key is saved, removed or
+   switched in the API connections; the button next to the key field checks it again on demand.
 
 Keys are never logged or displayed.
 
@@ -67,8 +84,8 @@ that prompt request.
 
 ## Not verified
 
-- Calls against the real NanoGPT and OpenRouter APIs (tested only against the local mock server and recorded
-  model-list samples).
+- Calls against the real OpenRouter API (tested only against the local mock server and recorded model-list
+  samples). NanoGPT was tested for real on 2026-11-12: chat model and image models, key taken from the app.
 - TauriTavern on Android (tested in desktop SillyTavern 1.18).
 
 ## Development

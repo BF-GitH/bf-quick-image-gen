@@ -94,8 +94,10 @@ test('normalizeSettings replaces an empty instruction and empty models with defa
     assert.deepEqual(result.models, { ...DEFAULT_MODELS });
 });
 
-test('normalizeSettings migrates the legacy default instruction and keeps a customised one', () => {
-    assert.ok(LEGACY_DEFAULT_INSTRUCTIONS.length > 0);
+test('normalizeSettings migrates the legacy default instructions (1.0 and 1.1) and keeps a customised one', () => {
+    assert.equal(LEGACY_DEFAULT_INSTRUCTIONS.length, 2);
+    assert.ok(LEGACY_DEFAULT_INSTRUCTIONS[0].endsWith('and the current action from the latest messages.'));
+    assert.ok(LEGACY_DEFAULT_INSTRUCTIONS[1].endsWith('the place where they are now, the lighting and the mood.'));
     for (const legacy of LEGACY_DEFAULT_INSTRUCTIONS) {
         assert.notEqual(legacy, DEFAULT_INSTRUCTION);
         assert.equal(normalizeSettings({ instruction: legacy }).instruction, DEFAULT_INSTRUCTION);
@@ -103,6 +105,8 @@ test('normalizeSettings migrates the legacy default instruction and keeps a cust
     assert.equal(normalizeSettings({ instruction: '' }).instruction, DEFAULT_INSTRUCTION);
     const custom = `${LEGACY_DEFAULT_INSTRUCTIONS[0]} Always in watercolour.`;
     assert.equal(normalizeSettings({ instruction: custom }).instruction, custom);
+    const custom11 = LEGACY_DEFAULT_INSTRUCTIONS[1].replace('the mood.', 'the mood. Watercolour.');
+    assert.equal(normalizeSettings({ instruction: custom11 }).instruction, custom11);
     assert.equal(normalizeSettings({ instruction: 'Malen' }).instruction, 'Malen');
 });
 

@@ -84,7 +84,8 @@
     align-items: stretch;
 }
 
-.bfqig-settings .bfqig-row select.text_pole {
+.bfqig-settings .bfqig-row select.text_pole,
+.bfqig-settings .bfqig-row input.text_pole {
     flex: 1 1 auto;
     min-width: 0;
 }

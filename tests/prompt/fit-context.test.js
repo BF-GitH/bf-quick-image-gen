@@ -32,7 +32,7 @@ test('direct prompt with a 2600-char first message keeps the full reply and user
     assert.ok(prompt.includes(USER.text));
     assert.ok(prompt.includes(REPLY.text));
     assert.ok(prompt.includes('opening0'), 'first message still contributes');
-    assert.ok(prompt.endsWith(` Style: ${styleSuffix}`));
+    assert.ok(prompt.startsWith(`${styleSuffix}, ${DEFAULT_INSTRUCTION}`));
 });
 
 test('end to end, maxChars 800: instruction first, current moment before background, newest message complete', () => {
@@ -51,8 +51,7 @@ test('end to end, maxChars 800: instruction first, current moment before backgro
 test('end to end, maxChars 800 with the default instruction keeps the current moment in full', () => {
     const prompt = directPrompt({ first: FIRST, recent: [USER, REPLY] }, { instruction: DEFAULT_INSTRUCTION, styleSuffix: 'oil', maxChars: 800 });
     assert.ok(prompt.length <= 800);
-    assert.ok(prompt.startsWith(`${DEFAULT_INSTRUCTION}\n\n${CURRENT}\nBob: ${REPLY.text}`));
-    assert.ok(prompt.endsWith(' Style: oil'));
+    assert.ok(prompt.startsWith(`oil, ${DEFAULT_INSTRUCTION}\n\n${CURRENT}\nBob: ${REPLY.text}`));
 });
 
 test('a tiny budget still carries the current moment', () => {
@@ -169,7 +168,16 @@ test('a budget below 80 characters gives an empty context', () => {
     assert.deepEqual(fitContext({ first: FIRST, recent: [REPLY] }, -10), { first: null, recent: [] });
 });
 
-test('directSceneBudget subtracts instruction, separator and style suffix', () => {
+test('directSceneBudget subtracts instruction, separator and the style prefix', () => {
     assert.equal(directSceneBudget({ instruction: 'abc', styleSuffix: '', maxChars: 100 }), 95);
-    assert.equal(directSceneBudget({ instruction: 'abc', styleSuffix: ' x ', maxChars: 100 }), 95 - ' Style: x'.length);
+    assert.equal(directSceneBudget({ instruction: 'abc', styleSuffix: ' x ', maxChars: 100 }), 95 - 'x, '.length);
+});
+
+test('the direct prompt fits its budget with a style set, style first and uncut', () => {
+    const styleSuffix = 'masterpiece, anime style, soft lighting';
+    for (const maxChars of [500, 800, 1800]) {
+        const prompt = directPrompt({ first: FIRST, recent: [USER, REPLY] }, { instruction: DEFAULT_INSTRUCTION, styleSuffix, maxChars });
+        assert.ok(prompt.length <= maxChars, `length ${prompt.length} > ${maxChars}`);
+        assert.ok(prompt.startsWith(`${styleSuffix}, ${DEFAULT_INSTRUCTION}\n\n${CURRENT}\n`), String(maxChars));
+    }
 });

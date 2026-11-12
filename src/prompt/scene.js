@@ -1,15 +1,16 @@
 // Turns chat snapshots into an image prompt. Pure: the caller supplies the snapshots.
 
-export const DEFAULT_INSTRUCTION = 'Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.';
+export const DEFAULT_INSTRUCTION = 'Depict the current moment of this roleplay as one image: what happens in the latest message. The picture shows {{char}}, seen through the eyes of {{user}}. {{user}} is not in the picture.';
 
 // Stored settings that still hold an old default get the new one; a text the user wrote is kept.
 export const LEGACY_DEFAULT_INSTRUCTIONS = Object.freeze([
     'Depict the current moment of this roleplay as one image: the characters present with their appearance (hair, eyes, build, clothing), their pose and expression, the location, lighting and mood. Take the characters\' looks and the setting from the first message and the current action from the latest messages.',
+    'Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.',
 ]);
 
-export const LIMITS = Object.freeze({ firstMessageChars: 2500, messageChars: 1500 });
+export const LIMITS = Object.freeze({ firstMessageChars: 2500, messageChars: 1500, characterChars: 1200, characterCount: 4 });
 
-const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.';
+const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Write the prompt as one line of comma-separated English tags, most important first, in exactly this order: 1. who is shown, for example "1girl, solo"; 2. names, only for characters from a published work (anime, game, book, film, series): the full canonical name and the title of the work, for example "hermione granger, harry potter". Leave out every other name; 3. hair and eyes of each person shown, at most 3 tags; 4. what they wear in this moment, at most 3 tags; 5. pose, action, expression and the objects they hold in this moment, at most 5 tags; 6. the place and background of this moment, at most 3 tags; 7. lighting and mood, at most 2 tags. At most 20 tags and 45 words in total, 1 to 4 words per tag: many image generators ignore everything after that. No sentences, no dialogue, no explanations. Output only the prompt.';
 
 const THINK_BLOCKS = /<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 const CODE_BLOCKS = /<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
@@ -146,15 +147,41 @@ export function fitContext({ first, recent }, budgetChars) {
     return { first: keptFirst, recent: keptRecent };
 }
 
-// The direct prompt is `<instruction>\n\n<sceneBlock>` plus the style suffix finalizePrompt appends.
+// The direct prompt is `<instruction>\n\n<sceneBlock>` behind the style prefix finalizePrompt puts in front.
 export function directSceneBudget({ instruction, styleSuffix, maxChars = 1800 }) {
-    return maxChars - styleSuffixText(styleSuffix).length - toText(instruction).length - SECTION_SEPARATOR.length;
+    return maxChars - stylePrefixText(styleSuffix).length - toText(instruction).length - SECTION_SEPARATOR.length;
 }
 
-export function buildLlmRequest({ instruction, sceneBlock }) {
+export function collectCharacters(notes) {
+    const list = Array.isArray(notes) ? notes : [];
+    const characters = [];
+    for (const note of list) {
+        if (characters.length >= LIMITS.characterCount) break;
+        const name = toText(note?.name).trim();
+        if (!name) continue;
+        characters.push({ name, text: truncateText(cleanMessageText(note.description), LIMITS.characterChars) });
+    }
+    return characters;
+}
+
+// Without a card the chat model has no looks to work from and does not know whom to name.
+const CHARACTER_HEADING = '[Characters, reference only: who they are and what they look like]';
+
+export function buildCharacterBlock({ characters, userName }) {
+    const list = Array.isArray(characters) ? characters : [];
+    if (list.length === 0) return '';
+    const entries = list.map(({ name, text }) => (text ? `${name} (character): ${text}` : `${name} (character)`));
+    const user = toText(userName).trim();
+    if (user) entries.push(`${user} (user)`);
+    return `${CHARACTER_HEADING}\n${entries.join(SECTION_SEPARATOR)}`;
+}
+
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '' }) {
+    const characters = toText(characterBlock);
+    const middle = characters ? `${characters}${SECTION_SEPARATOR}` : '';
     return {
         systemPrompt: SYSTEM_PROMPT,
-        prompt: `Task: ${toText(instruction)}\n\n${toText(sceneBlock)}\n\nImage prompt:`,
+        prompt: `Task: ${toText(instruction)}${SECTION_SEPARATOR}${middle}${toText(sceneBlock)}\n\nImage prompt:`,
     };
 }
 
@@ -173,13 +200,15 @@ export function cleanLlmOutput(text) {
     return value.replace(/\s+/g, ' ').trim();
 }
 
-function styleSuffixText(styleSuffix) {
+function stylePrefixText(styleSuffix) {
     const style = toText(styleSuffix).trim();
-    return style ? ` Style: ${style}` : '';
+    return style ? `${style}, ` : '';
 }
 
+// The style goes first: image models drop the end of a long prompt, and the style must survive.
 export function finalizePrompt(text, { styleSuffix = '', maxChars = 1800 } = {}) {
-    const suffix = styleSuffixText(styleSuffix);
-    const body = truncateText(toText(text).trim(), Math.max(0, maxChars - suffix.length));
-    return `${body}${suffix}`.trim();
+    const prefix = stylePrefixText(styleSuffix);
+    const body = truncateText(toText(text).trim(), Math.max(0, maxChars - prefix.length));
+    if (!prefix) return body.trim();
+    return body ? `${prefix}${body}` : toText(styleSuffix).trim();
 }

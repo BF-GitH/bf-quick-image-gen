@@ -810,3 +810,105 @@ dispatch). So deleting a generated image from the chat is hardly possible on a p
 - `index.js` calls `installChatImageMenu()` after the settings panel is mounted.
 - The viewer's "Löschen" removes the file, the gallery record and the media entry in the open chat (section 5.18),
   "Auf Gerät speichern" replaces the host's save confirmation.
+
+## 11. Character fidelity and key status refresh (version 1.2.0, **BINDING**)
+
+Field report: in a chat with a known character (Hermione Granger) the image showed "nonsense", and the key status
+of an empty key field never changed. Measured with real models (NanoGPT, 2026-11-12):
+
+- The prompt context held only chat messages. The character card was missing, so the chat model had no looks to
+  work from and nothing told it to name a known character.
+- SDXL-family models (`wai-illustrious-sdxl` and the other anime models) read only about the first 75 tokens:
+  a red umbrella named after ~65 tokens is drawn, after ~93 tokens it is not. A 120-word paragraph loses its
+  second half, and a style appended at the end is lost as well.
+- A reasoning chat model spent up to 1774 tokens on thinking for this request. With the reply length of a usual
+  roleplay preset the image prompt came back cut in the middle of a sentence.
+- The key status was computed at mount, on provider change and on key input only. A key stored in the app
+  afterwards kept showing "Kein Key gefunden" although `/api/secrets/find` returned it.
+
+This section replaces the corresponding texts and rules of sections 5.6, 5.12, 5.20, 6 and 9.
+
+### 11.1 HOST: `src/host/chat.js`, `src/host/llm.js`
+```js
+// chat.js
+export function getCharacterNotes()   // -> [{ name, description }], raw strings; [] when no chat is open
+// llm.js
+export async function generateText({ prompt, systemPrompt, minResponseTokens })   // -> string
+```
+`getCharacterNotes`: solo chat -> one entry for `ctx.characters[ctx.characterId]` (`description` =
+`character.description ?? character.data?.description ?? ''`). Group chat -> one entry per avatar in
+`group.members` that is not in `group.disabled_members`, resolved with `ctx.characters.find(c => c.avatar === avatar)`;
+unknown avatars are skipped. Entries without a name are skipped. No cleaning and no macro substitution here.
+
+`generateText`: when `minResponseTokens` is a positive number, `ctx.mainApi === 'openai'` and
+`ctx.chatCompletionSettings.openai_max_tokens` is a number below it, pass `responseLength: minResponseTokens` to
+`ctx.generateRaw` (both hosts restore the preset value themselves afterwards). In every other case call
+`generateRaw({ prompt, systemPrompt })` as before: text-completion backends count the reply length against their
+context size, so it is never raised there.
+
+### 11.2 PURE: `src/prompt/scene.js`
+```js
+export const LIMITS = { firstMessageChars: 2500, messageChars: 1500, characterChars: 1200, characterCount: 4 }
+export function collectCharacters(notes)                       // -> [{ name, text }]
+export function buildCharacterBlock({ characters, userName })  // -> string ('' when there are no characters)
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '' })
+export function finalizePrompt(text, { styleSuffix = '', maxChars = 1800 } = {})
+```
+- `collectCharacters(notes)`: for each `{ name, description }` (non-arrays -> `[]`): `name` trimmed, entries without
+  a name dropped; `text` = `truncateText(cleanMessageText(description), LIMITS.characterChars)` (may be empty);
+  at most `LIMITS.characterCount` entries, in order.
+- `buildCharacterBlock`: heading (exact) `[Characters, reference only: who they are and what they look like]`, then
+  one entry per character, `<name> (character): <text>` or `<name> (character)` when the text is empty, then
+  `<userName> (user)` when the trimmed user name is not empty. Entries are separated by a blank line. No characters
+  -> `''` (the user alone is no block).
+- `buildLlmRequest`: `prompt` = `Task: <instruction>\n\n<characterBlock>\n\n<sceneBlock>\n\nImage prompt:`; an empty
+  `characterBlock` and its separator are left out.
+- `SYSTEM_PROMPT` (exact, one line):
+  `You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Write the prompt as one line of comma-separated English tags, most important first, in exactly this order: 1. who is shown, for example "1girl, solo"; 2. names, only for characters from a published work (anime, game, book, film, series): the full canonical name and the title of the work, for example "hermione granger, harry potter". Leave out every other name; 3. hair and eyes of each person shown, at most 3 tags; 4. what they wear in this moment, at most 3 tags; 5. pose, action, expression and the objects they hold in this moment, at most 5 tags; 6. the place and background of this moment, at most 3 tags; 7. lighting and mood, at most 2 tags. At most 20 tags and 45 words in total, 1 to 4 words per tag: many image generators ignore everything after that. No sentences, no dialogue, no explanations. Output only the prompt.`
+- `DEFAULT_INSTRUCTION` (exact, one line):
+  `Depict the current moment of this roleplay as one image: what happens in the latest message. The picture shows {{char}}, seen through the eyes of {{user}}. {{user}} is not in the picture.`
+  (`{{char}}` and `{{user}}` are host macros; `build.js` already resolves the instruction with `substituteMacros`.)
+- `LEGACY_DEFAULT_INSTRUCTIONS` additionally holds the version 1.1 default exactly (`...the place where they are now,
+  the lighting and the mood.`), so untouched installs get the new default.
+- `finalizePrompt`: the style goes first, because the end of a prompt is the part image models drop. With a
+  non-empty trimmed style the result is `<style>, <text>`; the text is truncated so that the whole fits `maxChars`
+  (the style is never cut). Without a style the result is the truncated text. `directSceneBudget` subtracts that
+  prefix instead of the old suffix. The setting key stays `styleSuffix`.
+
+### 11.3 WIRING: `src/prompt/build.js`
+```js
+export const IMAGE_PROMPT_MIN_TOKENS = 2000
+```
+Chat-model path: `characterBlock = buildCharacterBlock({ characters: collectCharacters(<notes>), userName })` with
+`<notes>` = `getCharacterNotes()` whose descriptions went through `substituteMacros`, `userName` =
+`getParticipantNames().user`; request = `buildLlmRequest({ instruction, sceneBlock, characterBlock })`;
+`generateText({ ...request, minResponseTokens: IMAGE_PROMPT_MIN_TOKENS })`. The direct path is unchanged (no
+character block: it has no chat model to condense it).
+
+### 11.4 UI: key status refresh (`src/settings/panel.js`, `style.css`)
+- The key input sits in a `<div class="bfqig-row">` together with a button
+  `<button type="button" id="bfqig-key-refresh" class="menu_button bfqig-icon-button">` that carries the same
+  rotate icon as `bfqig-model-refresh`, with `title` and `aria-label` `Key-Status neu prüfen`. The input fills the
+  row (same behaviour as the model select in its row).
+- A refresh sets the status text `Key wird geprüft …` with `data-state="checking"` and disables the button until
+  the result (or error) of that run is shown; a run superseded by a newer one leaves text and button to the newer.
+- The button calls the refresh. The panel also refreshes on the host events `SECRET_WRITTEN`, `SECRET_DELETED`,
+  `SECRET_ROTATED` and `SECRET_EDITED` (through `onHostEvent`; both hosts emit them when a key is saved, removed
+  or switched in the API connections), so the status follows the app without a reload.
+
+| Key / place | Text |
+|---|---|
+| key refresh button (`title`, `aria-label`) | `Key-Status neu prüfen` |
+| key status while checking | `Key wird geprüft …` |
+
+### 11.5 Tests and version
+- `tests/prompt`: the system prompt and the default instruction are single lines and equal the texts above;
+  `collectCharacters` (cleaning, truncation, missing names, count limit, non-array input); `buildCharacterBlock`
+  (heading, entry with and without text, user line, empty result); `buildLlmRequest` with and without a character
+  block; `finalizePrompt` puts the style first, never cuts it and respects `maxChars`; the direct prompt still
+  fits its budget with a style set.
+- `tests/settings`: both legacy default instructions (1.0 and 1.1) are migrated, a customised text is kept.
+- No existing test is deleted; assertions on replaced texts are updated. The test count does not drop (182 before).
+- Version `1.2.0` in `manifest.json`, `package.json` and `package-lock.json`.
+- Live test (orchestrator): SillyTavern test instance, NanoGPT chat model and `wai-illustrious-sdxl`, a card of a
+  published character (`dev/cards/*.json`, importable character cards), "Senden + Bild" with an empty key field.

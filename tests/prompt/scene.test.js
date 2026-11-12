@@ -23,11 +23,14 @@ const CURRENT = '[Current moment, depict this]';
 
 test('DEFAULT_INSTRUCTION is the exact single-line text', () => {
     assert.ok(!DEFAULT_INSTRUCTION.includes('\n'));
-    assert.equal(DEFAULT_INSTRUCTION, 'Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.');
+    assert.equal(DEFAULT_INSTRUCTION, 'Depict the current moment of this roleplay as one image: what happens in the latest message. The picture shows {{char}}, seen through the eyes of {{user}}. {{user}} is not in the picture.');
 });
 
-test('LEGACY_DEFAULT_INSTRUCTIONS holds the version 1.0 default exactly', () => {
-    assert.deepEqual([...LEGACY_DEFAULT_INSTRUCTIONS], ['Depict the current moment of this roleplay as one image: the characters present with their appearance (hair, eyes, build, clothing), their pose and expression, the location, lighting and mood. Take the characters\' looks and the setting from the first message and the current action from the latest messages.']);
+test('LEGACY_DEFAULT_INSTRUCTIONS holds the version 1.0 and 1.1 defaults exactly', () => {
+    assert.deepEqual([...LEGACY_DEFAULT_INSTRUCTIONS], [
+        'Depict the current moment of this roleplay as one image: the characters present with their appearance (hair, eyes, build, clothing), their pose and expression, the location, lighting and mood. Take the characters\' looks and the setting from the first message and the current action from the latest messages.',
+        'Depict the current moment of this roleplay as one image: what happens in the latest message. Show the characters who are present with their appearance (hair, eyes, build, clothing), their pose and expression, the place where they are now, the lighting and the mood.',
+    ]);
     assert.ok(Object.isFrozen(LEGACY_DEFAULT_INSTRUCTIONS));
 });
 
@@ -88,7 +91,7 @@ test('collectContext truncates first and recent messages to LIMITS', () => {
     assert.ok(ctx.first.text.length <= LIMITS.firstMessageChars);
     assert.ok(ctx.first.text.length > LIMITS.firstMessageChars - 10);
     assert.ok(ctx.recent[0].text.length <= LIMITS.messageChars);
-    assert.deepEqual(LIMITS, { firstMessageChars: 2500, messageChars: 1500 });
+    assert.deepEqual(LIMITS, { firstMessageChars: 2500, messageChars: 1500, characterChars: 1200, characterCount: 4 });
 });
 
 test('truncateText cuts at a nearby word boundary, else hard, never adds an ellipsis', () => {
@@ -154,7 +157,7 @@ test('buildSceneBlock omits empty sections (no background, no recent, nothing)',
 test('buildLlmRequest and buildDirectPrompt use the exact templates', () => {
     const req = buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE' });
     assert.equal(req.prompt, 'Task: Do it\n\nSCENE\n\nImage prompt:');
-    assert.equal(req.systemPrompt, 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Output only the image prompt: English, one paragraph, at most 120 words, concrete visual details, no dialogue, no explanations.');
+    assert.equal(req.systemPrompt, 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Write the prompt as one line of comma-separated English tags, most important first, in exactly this order: 1. who is shown, for example "1girl, solo"; 2. names, only for characters from a published work (anime, game, book, film, series): the full canonical name and the title of the work, for example "hermione granger, harry potter". Leave out every other name; 3. hair and eyes of each person shown, at most 3 tags; 4. what they wear in this moment, at most 3 tags; 5. pose, action, expression and the objects they hold in this moment, at most 5 tags; 6. the place and background of this moment, at most 3 tags; 7. lighting and mood, at most 2 tags. At most 20 tags and 45 words in total, 1 to 4 words per tag: many image generators ignore everything after that. No sentences, no dialogue, no explanations. Output only the prompt.');
     assert.ok(!req.systemPrompt.includes('\n'), 'system prompt is a single line');
     assert.equal(buildDirectPrompt({ instruction: 'Do it', sceneBlock: 'SCENE' }), 'Do it\n\nSCENE');
 });
@@ -170,17 +173,17 @@ test('cleanLlmOutput strips labels, fences, quotes and think blocks', () => {
     assert.equal(cleanLlmOutput(null), '');
 });
 
-test('finalizePrompt keeps the style suffix intact while fitting maxChars', () => {
+test('finalizePrompt puts the style first and keeps it intact while fitting maxChars', () => {
     const text = 'word '.repeat(100).trim();
     const result = finalizePrompt(text, { styleSuffix: '  anime style  ', maxChars: 100 });
     assert.ok(result.length <= 100);
-    assert.ok(result.endsWith(' Style: anime style'));
-    assert.ok(result.startsWith('word word'));
+    assert.ok(result.startsWith('anime style, word word'));
+    assert.ok(result.endsWith('word'));
 });
 
-test('finalizePrompt without suffix only truncates', () => {
+test('finalizePrompt without style only truncates', () => {
     assert.equal(finalizePrompt('  a cat  '), 'a cat');
     assert.equal(finalizePrompt('a cat', { styleSuffix: '   ' }), 'a cat');
-    assert.equal(finalizePrompt('a cat', { styleSuffix: 'oil' }), 'a cat Style: oil');
+    assert.equal(finalizePrompt('a cat', { styleSuffix: 'oil' }), 'oil, a cat');
     assert.equal(finalizePrompt('x'.repeat(3000)).length, 1800);
 });
