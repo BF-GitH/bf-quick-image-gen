@@ -20,8 +20,7 @@ In TauriTavern or SillyTavern: Extensions > **Install extension**, paste
 https://github.com/BF-GitH/bf-quick-image-gen
 ```
 
-The installer clones the repository's **default branch** unless you fill in the optional "Branch or tag name"
-field. While the rewrite lives on the branch `slim-tauritavern`, enter that name there.
+Leave the optional "Branch or tag name" field empty: the default branch `main` holds the extension.
 
 This fork uses its own settings key and its own menu entry, so it can sit next to the original Quick Image Gen.
 Disable or remove the original if you no longer want its palette button and settings drawer.
