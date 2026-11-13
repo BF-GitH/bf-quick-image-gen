@@ -17,7 +17,37 @@ export const LEGACY_DEFAULT_INSTRUCTIONS = Object.freeze([
 
 export const LIMITS = Object.freeze({ firstMessageChars: 2500, messageChars: 1500, characterChars: 1200, characterCount: 4 });
 
-const SYSTEM_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. Line 2: one short description in plain English, at most 45 words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light. Refer to each person by the name from line 1; for a character from a published work (anime, game, book, film, series) write the full canonical name and the title of the work instead at the first mention, for example "Hermione Granger from Harry Potter". Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen. No dialogue, no explanations. Output only these two lines.';
+export const DEFAULT_DESCRIPTION = 'who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light';
+export const DESCRIPTION_WORDS = Object.freeze({ min: 20, max: 200, fallback: 45 });
+
+// Above this many words the prompt targets models that read long prompts, so the 50-word warning would mislead.
+const SHORT_PROMPT_WORDS = 50;
+
+// The frame (who is shown, head count, naming) stays fixed: reference matching depends on it.
+const SYSTEM_PROMPT_HEAD = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. ';
+const SYSTEM_PROMPT_NAMING = ' Refer to each person by the name from line 1; for a character from a published work (anime, game, book, film, series) write the full canonical name and the title of the work instead at the first mention, for example "Hermione Granger from Harry Potter". ';
+const SYSTEM_PROMPT_TAIL = ' No dialogue, no explanations. Output only these two lines.';
+
+function cleanDescription(value) {
+    // A trailing period would double up with the one the template puts after the description.
+    const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().replace(/\.+$/, '').trim() : '';
+    return text || DEFAULT_DESCRIPTION;
+}
+
+function clampWords(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DESCRIPTION_WORDS.fallback;
+    return Math.min(DESCRIPTION_WORDS.max, Math.max(DESCRIPTION_WORDS.min, Math.round(value)));
+}
+
+export function buildSystemPrompt({ description, maxWords } = {}) {
+    const words = clampWords(maxWords);
+    const short = words <= SHORT_PROMPT_WORDS;
+    const line2 = `Line 2: one ${short ? 'short ' : ''}description in plain English, at most ${words} words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: ${cleanDescription(description)}.`;
+    const weight = short
+        ? 'Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen.'
+        : 'The most important things come first and nothing is mentioned that cannot be seen.';
+    return `${SYSTEM_PROMPT_HEAD}${line2}${SYSTEM_PROMPT_NAMING}${weight}${SYSTEM_PROMPT_TAIL}`;
+}
 
 const THINK_BLOCKS = /<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
 const CODE_BLOCKS = /<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
@@ -186,7 +216,7 @@ export function buildCharacterBlock({ characters, userName }) {
 // The list only fixes spelling, so the names the chat model reports can be matched to reference pictures.
 const KNOWN_NAMES_HEADING = '[Known names, for spelling only]';
 
-export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [] }) {
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [], description, maxWords }) {
     const names = (Array.isArray(knownNames) ? knownNames : []).map(toText).filter((name) => name.trim());
     const characters = toText(characterBlock);
     const middle = [names.length > 0 ? `${KNOWN_NAMES_HEADING}\n${names.join(', ')}` : '', characters]
@@ -194,7 +224,7 @@ export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', 
         .map((block) => `${block}${SECTION_SEPARATOR}`)
         .join('');
     return {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: buildSystemPrompt({ description, maxWords }),
         prompt: `Task: ${toText(instruction)}${SECTION_SEPARATOR}${middle}${toText(sceneBlock)}\n\nImage prompt:`,
     };
 }

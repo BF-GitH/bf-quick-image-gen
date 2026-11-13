@@ -1,14 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_SETTINGS, normalizeSettings, toggleFavorite } from '../../src/settings/defaults.js';
-import { DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS } from '../../src/prompt/scene.js';
+import { DEFAULT_DESCRIPTION, DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS } from '../../src/prompt/scene.js';
 import { GALLERY_LIMIT } from '../../src/gallery/records.js';
 import { DEFAULT_MODELS } from '../../src/shared/constants.js';
 import { REFERENCE_LIMIT } from '../../src/references/select.js';
 
 const EXPECTED_DEFAULTS = {
     provider: 'nanogpt', keys: { nanogpt: '', openrouter: '' }, models: { ...DEFAULT_MODELS },
-    favorites: { nanogpt: [], openrouter: [] }, instruction: DEFAULT_INSTRUCTION, aspect: '1:1', quality: 'standard',
+    favorites: { nanogpt: [], openrouter: [] }, instruction: DEFAULT_INSTRUCTION, description: DEFAULT_DESCRIPTION,
+    descriptionWords: 45, aspect: '1:1', quality: 'standard',
     contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
     references: [], referenceOrder: {},
 };
@@ -41,8 +42,8 @@ test('normalizeSettings returns a fresh object; mutating it leaves DEFAULT_SETTI
 test('normalizeSettings keeps valid values', () => {
     const saved = {
         provider: 'openrouter', keys: { nanogpt: 'a', openrouter: 'b' }, models: { nanogpt: 'x', openrouter: 'y' },
-        favorites: { nanogpt: ['x'], openrouter: ['y', 'z'] }, instruction: 'Malen', aspect: '16:9', quality: 'high',
-        contextMessages: 12, styleSuffix: 'anime', useLlm: false, autoSaveDialog: true, parallelImage: true,
+        favorites: { nanogpt: ['x'], openrouter: ['y', 'z'] }, instruction: 'Malen', description: 'the mood', descriptionWords: 90,
+        aspect: '16:9', quality: 'high', contextMessages: 12, styleSuffix: 'anime', useLlm: false, autoSaveDialog: true, parallelImage: true,
         gallery: [{ url: 'user/images/a.png', prompt: 'p' }],
         references: [{ url: 'user/images/bfqig-references/r.jpg', names: ['Kyouko'], enabled: false, timestamp: 5 }],
         referenceOrder: { kyouko: ['user/images/bfqig-references/r.jpg'] },
@@ -189,4 +190,24 @@ test('toggleFavorite adds and removes without mutating', () => {
     assert.deepEqual(toggleFavorite(two, 'flux-schnell'), ['z-image-turbo']);
     assert.deepEqual(two, ['flux-schnell', 'z-image-turbo']);
     assert.deepEqual(toggleFavorite(undefined, 'a'), ['a']);
+});
+
+test('DEFAULT_SETTINGS carries the default picture description and 45 words', () => {
+    assert.equal(DEFAULT_SETTINGS.description, DEFAULT_DESCRIPTION);
+    assert.equal(DEFAULT_SETTINGS.descriptionWords, 45);
+});
+
+test('normalizeSettings keeps a written description and replaces empty or non-string ones', () => {
+    assert.equal(normalizeSettings({ description: 'their emotions, the place' }).description, 'their emotions, the place');
+    for (const input of ['', '   ', '\n\t', undefined, null, 5, {}, []]) {
+        assert.equal(normalizeSettings({ description: input }).description, DEFAULT_DESCRIPTION, JSON.stringify(input));
+    }
+});
+
+test('normalizeSettings clamps descriptionWords to an integer in 20..200', () => {
+    const cases = [[45, 45], [90, 90], [19, 20], [0, 20], [-5, 20], [201, 200], [1e9, 200], [87.6, 88], ['120', 120],
+        [NaN, 45], [Infinity, 45], [null, 45], ['', 45], ['viele', 45], [{}, 45]];
+    for (const [input, expected] of cases) {
+        assert.equal(normalizeSettings({ descriptionWords: input }).descriptionWords, expected, String(input));
+    }
 });

@@ -33,29 +33,33 @@ import {
 // Reasoning models spend up to ~1800 tokens thinking; a usual roleplay reply length cut the prompt mid-sentence.
 export const IMAGE_PROMPT_MIN_TOKENS = 2000;
 
+const EMPTY_ANSWER = 'leere Antwort';
+
 function buildCharacterBlockFromChat(userName) {
     const notes = getCharacterNotes().map((note) => ({ ...note, description: substituteMacros(note.description) }));
     return buildCharacterBlock({ characters: collectCharacters(notes), userName });
 }
 
 // -> { description, names } with names = null when the answer carried no "Shown:" line.
-async function askChatModel({ instruction, sceneBlock, userName, known }) {
+async function askChatModel({ instruction, sceneBlock, userName, known, settings }) {
     try {
         const request = buildLlmRequest({
             instruction,
             sceneBlock,
             characterBlock: buildCharacterBlockFromChat(userName),
             knownNames: known,
+            description: settings.description,
+            maxWords: settings.descriptionWords,
         });
         const answer = await generateText({ ...request, minResponseTokens: IMAGE_PROMPT_MIN_TOKENS });
         const { names, text } = splitShownLine(answer);
         const description = cleanLlmOutput(text);
         if (!description) console.warn(`${LOG_PREFIX} chat model returned an empty image prompt, using the direct prompt`);
-        return { description, names: names.length > 0 ? names : null };
+        return { description, names: names.length > 0 ? names : null, problem: description ? null : EMPTY_ANSWER };
     } catch (error) {
         // An image is still better than none: fall back to the raw scene description.
         console.warn(`${LOG_PREFIX} image prompt via chat model failed, using the direct prompt:`, error?.message ?? error);
-        return { description: '', names: null };
+        return { description: '', names: null, problem: String(error?.message ?? error) || EMPTY_ANSWER };
     }
 }
 
@@ -90,8 +94,10 @@ export async function buildImagePrompt({ lastIndex, settings, maxPromptChars, ca
 
     let description = '';
     let reported = null;
+    // Why the chat model gave no description; the caller tells the owner, who otherwise only sees a worse picture.
+    let llmProblem = null;
     if (settings.useLlm) {
-        ({ description, names: reported } = await askChatModel({ instruction, sceneBlock, userName, known }));
+        ({ description, names: reported, problem: llmProblem } = await askChatModel({ instruction, sceneBlock, userName, known, settings }));
     }
     const usedLlm = Boolean(description);
     let shownNames = usedLlm && reported
@@ -118,5 +124,6 @@ export async function buildImagePrompt({ lastIndex, settings, maxPromptChars, ca
         shownNames,
         references,
         failedReferences,
+        llmProblem,
     };
 }

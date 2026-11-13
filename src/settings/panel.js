@@ -2,7 +2,7 @@
 
 import { LOG_PREFIX, PROVIDER_IDS, ASPECT_IDS, QUALITY_IDS } from '../shared/constants.js';
 import { getProvider } from '../providers/index.js';
-import { DEFAULT_INSTRUCTION } from '../prompt/scene.js';
+import { DEFAULT_DESCRIPTION, DEFAULT_INSTRUCTION, DESCRIPTION_WORDS } from '../prompt/scene.js';
 import { notify, onHostEvent } from '../host/st.js';
 import { getSettings, updateSettings } from './store.js';
 import { describeKeyState } from './keys.js';
@@ -53,6 +53,16 @@ const MARKUP = `
       <div class="flex-container">
         <button type="button" id="bfqig-instruction-reset" class="menu_button">Standard</button>
       </div>
+      <div class="bfqig-note">Das ist die Aufgabe an das Textmodell: was das Bild zeigen soll.</div>
+      <label class="bfqig-label" for="bfqig-description">Bildbeschreibung</label>
+      <textarea id="bfqig-description" class="text_pole" rows="4"></textarea>
+      <div class="flex-container">
+        <button type="button" id="bfqig-description-reset" class="menu_button">Standard</button>
+      </div>
+      <div class="bfqig-note">Was das Textmodell beschreibt, in dieser Reihenfolge (auf Englisch). Immer fest dabei: wer im Bild ist, die Zahl der Personen vorne und die Zuordnung der Referenzbilder.</div>
+      <label class="bfqig-label" for="bfqig-description-words">Wörter höchstens</label>
+      <input id="bfqig-description-words" type="number" min="20" max="200" step="5" inputmode="numeric" class="text_pole">
+      <div class="bfqig-note">Anime-Modelle (SDXL) lesen nur etwa 50 Wörter. Modelle mit Referenzbildern vertragen 80 bis 120.</div>
       <label class="checkbox_label bfqig-check" for="bfqig-parallel">
         <input id="bfqig-parallel" type="checkbox">
         <span>Text sofort zeigen, Bild parallel erzeugen</span>
@@ -209,6 +219,8 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     const provider = byId('bfqig-provider');
     const key = byId('bfqig-key');
     const instruction = byId('bfqig-instruction');
+    const description = byId('bfqig-description');
+    const descriptionWords = byId('bfqig-description-words');
     const aspect = byId('bfqig-aspect');
     const quality = byId('bfqig-quality');
     const context = byId('bfqig-context');
@@ -224,6 +236,8 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     provider.value = settings.provider;
     key.value = settings.keys[settings.provider] ?? '';
     instruction.value = settings.instruction;
+    description.value = settings.description;
+    descriptionWords.value = String(settings.descriptionWords);
     aspect.value = settings.aspect;
     quality.value = settings.quality;
     context.value = String(settings.contextMessages);
@@ -248,6 +262,19 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     byId('bfqig-instruction-reset').addEventListener('click', () => {
         instruction.value = DEFAULT_INSTRUCTION;
         updateSettings({ instruction: DEFAULT_INSTRUCTION });
+    });
+    description.addEventListener('input', () => updateSettings({ description: description.value }));
+    byId('bfqig-description-reset').addEventListener('click', () => {
+        description.value = DEFAULT_DESCRIPTION;
+        updateSettings({ description: DEFAULT_DESCRIPTION });
+    });
+    descriptionWords.addEventListener('change', () => {
+        const parsed = Math.round(Number(descriptionWords.value));
+        const value = Number.isFinite(parsed)
+            ? Math.min(DESCRIPTION_WORDS.max, Math.max(DESCRIPTION_WORDS.min, parsed))
+            : getSettings().descriptionWords;
+        descriptionWords.value = String(value);
+        updateSettings({ descriptionWords: value });
     });
     aspect.addEventListener('change', () => {
         updateSettings({ aspect: aspect.value });

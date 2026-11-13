@@ -79,6 +79,12 @@ A reference picture does.
 - The default prompt shows `{{char}}` and everyone else who is present, seen through the eyes of `{{user}}`.
   Change the text under "Prompt" to show someone else. An install that still has an old default gets the new one
   automatically; a text you changed is kept ("Standard" restores the default).
+- "Prompt" is the task for the chat model (what the picture should show). "Bildbeschreibung" says what the chat
+  model then writes about the picture and in which order, and "Wörter höchstens" how long it may get. To get
+  feelings, bodies and movement into the pictures, write for example:
+  `who is shown, their build and what they wear in this moment, their pose and movement, their facial expression and the emotion behind it, what caused this moment as far as it can be seen, the place, the light`
+  and raise the words to about 90 (only for models that read that much, see below). Always added by the
+  extension itself: who is in the picture, the number of people in front, and which reference picture shows whom.
 - Anime models on NanoGPT that draw known characters well with this prompt: `wai-illustrious-sdxl`
   (WAI Illustrious SDXL, fast and cheap) and `anima/text-to-image` (Anima, slower, keeps more detail).
   `flux-schnell` does not know most characters.

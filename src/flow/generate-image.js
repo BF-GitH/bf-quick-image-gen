@@ -18,6 +18,7 @@ import { uploadImage, saveToDevice, deleteImage } from '../host/images.js';
 const TEST_PROMPT = 'A cozy fantasy tavern interior at night, warm lantern light, wooden beams, detailed illustration';
 const REMOTE_ONLY_WARNING = 'Bild konnte nicht lokal gespeichert werden, es ist nur verlinkt.';
 const REFERENCES_FAILED_WARNING = 'Referenzbilder konnten nicht geladen werden, das Bild entsteht ohne sie.';
+const llmProblemWarning = (reason) => `Das Textmodell hat keinen Bildprompt geliefert (${reason}). Das Bild entsteht aus dem Rohtext der Nachricht.`;
 const MESSAGE_GONE = 'Die Nachricht ist nicht mehr vorhanden.';
 // Lets the failure toast tell "nothing left to retry" apart from a failure worth retrying.
 export const MESSAGE_GONE_CODE = 'MESSAGE_GONE';
@@ -108,7 +109,7 @@ export async function prepareImage(lastIndex, { signal } = {}) {
     const target = await resolveTarget(signal);
     const modelInfo = await getModelInfo(target.provider.id, target.model);
     throwIfAborted(signal);
-    const { prompt, shownNames, references, failedReferences } = await buildImagePrompt({
+    const { prompt, shownNames, references, failedReferences, llmProblem } = await buildImagePrompt({
         lastIndex,
         settings: target.settings,
         maxPromptChars: promptLimit(modelInfo),
@@ -116,6 +117,7 @@ export async function prepareImage(lastIndex, { signal } = {}) {
         maxReferences: target.provider.maxReferenceImages(modelInfo),
     });
     throwIfAborted(signal);
+    if (llmProblem) notify.warning(llmProblemWarning(llmProblem));
     if (failedReferences > 0) notify.warning(REFERENCES_FAILED_WARNING);
 
     const folder = getImageFolderName();

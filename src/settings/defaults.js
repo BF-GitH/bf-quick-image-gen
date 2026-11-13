@@ -1,7 +1,7 @@
 // Settings template and validation. Pure: the store decides where the object lives.
 
 import { ASPECT_IDS, DEFAULT_MODELS, PROVIDER_IDS, QUALITY_IDS } from '../shared/constants.js';
-import { DEFAULT_INSTRUCTION, LEGACY_DEFAULT_INSTRUCTIONS } from '../prompt/scene.js';
+import { DEFAULT_DESCRIPTION, DEFAULT_INSTRUCTION, DESCRIPTION_WORDS, LEGACY_DEFAULT_INSTRUCTIONS } from '../prompt/scene.js';
 import { GALLERY_LIMIT } from '../gallery/records.js';
 import { REFERENCE_LIMIT, normalizeNames } from '../references/select.js';
 
@@ -14,6 +14,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
     models: Object.freeze({ ...DEFAULT_MODELS }),
     favorites: Object.freeze({ nanogpt: Object.freeze([]), openrouter: Object.freeze([]) }),
     instruction: DEFAULT_INSTRUCTION,
+    description: DEFAULT_DESCRIPTION,
+    descriptionWords: DESCRIPTION_WORDS.fallback,
     aspect: '1:1',
     quality: 'standard',
     contextMessages: 4,
@@ -50,6 +52,16 @@ function toContextCount(value) {
     const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
     if (typeof number !== 'number' || !Number.isFinite(number)) return DEFAULT_SETTINGS.contextMessages;
     return Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, Math.trunc(number)));
+}
+
+function toDescriptionWords(value) {
+    const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+    if (typeof number !== 'number' || !Number.isFinite(number)) return DESCRIPTION_WORDS.fallback;
+    return Math.min(DESCRIPTION_WORDS.max, Math.max(DESCRIPTION_WORDS.min, Math.round(number)));
+}
+
+function normalizeDescription(value) {
+    return typeof value === 'string' && value.trim() ? value : DEFAULT_DESCRIPTION;
 }
 
 function uniqueStrings(value) {
@@ -112,6 +124,8 @@ export function normalizeSettings(saved) {
         models: perProvider(src.models, (value, id) => toStr(value).trim() || DEFAULT_MODELS[id]),
         favorites: perProvider(src.favorites, (value) => uniqueStrings(value)),
         instruction: normalizeInstruction(src.instruction),
+        description: normalizeDescription(src.description),
+        descriptionWords: toDescriptionWords(src.descriptionWords),
         aspect: oneOf(src.aspect, ASPECT_IDS, DEFAULT_SETTINGS.aspect),
         quality: oneOf(src.quality, QUALITY_IDS, DEFAULT_SETTINGS.quality),
         contextMessages: toContextCount(src.contextMessages),

@@ -1328,3 +1328,86 @@ Upload form, top to bottom:
   before). Version `1.4.0`.
 - Live test (orchestrator): SillyTavern test instance: tick an existing name and upload a second picture, upload
   a group picture with two ticked names, move a picture and check the request order.
+
+## 15. Editable picture description (version 1.5.0, **BINDING**)
+
+Owner's request: the text under "Prompt" is only the task for the chat model. What the chat model then writes
+about the picture (hair, clothes, action, place, light, at most 45 words) was fixed in the system prompt, so
+emotions, bodies, movement and the reason for a moment could not be asked for. That part becomes a setting. The
+frame stays fixed: who is shown (line `Shown:`), the head count in front, the naming rule, and the reference
+preamble the extension adds itself.
+
+### 15.1 PURE: `src/prompt/scene.js`
+```js
+export const DEFAULT_DESCRIPTION    // 'who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light'
+export const DESCRIPTION_WORDS = { min: 20, max: 200, fallback: 45 }
+export function buildSystemPrompt({ description, maxWords } = {})   // -> string, one line
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [], description, maxWords })
+```
+- `buildSystemPrompt`: `description` is cleaned (whitespace runs to one space, trimmed, trailing periods removed);
+  not a string or empty -> `DEFAULT_DESCRIPTION`. `maxWords` is rounded and clamped to `DESCRIPTION_WORDS.min`..
+  `max`; not a finite number -> `fallback`.
+- The text is the system prompt of section 12.3 with three variable places:
+  1. `Line 2: one short description in plain English, at most <maxWords> words.` For more than 50 words the
+     sentence reads `Line 2: one description in plain English, at most <maxWords> words.`
+  2. `Then, in this order: <description>.`
+  3. Up to 50 words: `Many image generators ignore everything after about 50 words, so the most important things
+     come first and nothing is mentioned that cannot be seen.` Above 50: `The most important things come first
+     and nothing is mentioned that cannot be seen.`
+  Everything else is character for character the text of 12.3. With the defaults the result equals the 12.3
+  text exactly (the existing test keeps asserting that).
+- `buildLlmRequest`: `systemPrompt = buildSystemPrompt({ description, maxWords })`; the rest is unchanged.
+
+### 15.2 PURE: `src/settings/defaults.js`
+`DEFAULT_SETTINGS.description = DEFAULT_DESCRIPTION`, `DEFAULT_SETTINGS.descriptionWords = 45`.
+`normalizeSettings`: `description` a string, empty or whitespace only -> `DEFAULT_DESCRIPTION`; `descriptionWords`
+an integer clamped to 20..200, anything else -> 45.
+
+### 15.3 WIRING: `src/prompt/build.js`
+The chat-model request passes `description: settings.description` and `maxWords: settings.descriptionWords`.
+The direct path is unchanged.
+
+### 15.4 UI: `src/settings/panel.js`
+Directly after the row with the `Standard` button of the prompt, before the parallel checkbox:
+
+| Element | Id |
+|---|---|
+| note under the prompt row | class `bfqig-note` |
+| label + textarea (`rows="4"`, class `text_pole`) | `bfqig-description` |
+| reset button (`menu_button`, text `Standard`) in a `flex-container` | `bfqig-description-reset` |
+| note | class `bfqig-note` |
+| label + number input (`min="20" max="200" step="5" inputmode="numeric"`, class `text_pole`) | `bfqig-description-words` |
+| note | class `bfqig-note` |
+
+The textarea writes `description` on `input`; the reset button restores `DEFAULT_DESCRIPTION`. The number input
+writes on `change`, clamps like the context-count input does and shows the clamped value.
+
+| Key / place | Text |
+|---|---|
+| note under the prompt row | `Das ist die Aufgabe an das Textmodell: was das Bild zeigen soll.` |
+| label of the textarea | `Bildbeschreibung` |
+| note under the description | `Was das Textmodell beschreibt, in dieser Reihenfolge (auf Englisch). Immer fest dabei: wer im Bild ist, die Zahl der Personen vorne und die Zuordnung der Referenzbilder.` |
+| label of the number input | `Wörter höchstens` |
+| note under the number input | `Anime-Modelle (SDXL) lesen nur etwa 50 Wörter. Modelle mit Referenzbildern vertragen 80 bis 120.` |
+
+### 15.5 Tests and version
+- `tests/prompt`: `buildSystemPrompt()` and `buildLlmRequest` without the two parameters still give the exact
+  12.3 text; a custom description and word count appear in the right places; trailing period, line breaks and
+  empty text in the description; clamping and garbage for `maxWords`; the two sentence variants above 50 words;
+  the result is always one line.
+- `tests/settings`: defaults and normalisation of `description` and `descriptionWords`.
+- No existing test is deleted; the count does not drop (238 before). Version `1.5.0`.
+- Live test (orchestrator): SillyTavern test instance, a description that asks for emotion, body language and
+  movement with 90 words, real chat model and `hidream-o1-image-dev`: the request carries it, the answer follows it.
+
+### 15.6 Warning when the chat model gives no description
+Found in that live test: NanoGPT refused the chat model (`403 account_temporarily_restricted`), the extension
+fell back to the direct prompt and said nothing, so the owner paid for a picture made from raw chat text
+without knowing why it looked different.
+
+- `buildImagePrompt` additionally returns `llmProblem`: `null` when the chat model was not asked or gave a
+  description; otherwise the error message of the failed request, or `leere Antwort` for an empty answer.
+- `prepareImage` shows `notify.warning('Das Textmodell hat keinen Bildprompt geliefert (<llmProblem>). Das Bild
+  entsteht aus dem Rohtext der Nachricht.')` and goes on with the direct prompt as before.
+- Checked in SillyTavern with both requests simulated (nothing sent): the warning appears next to the host's own
+  error toast.
