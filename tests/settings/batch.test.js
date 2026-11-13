@@ -12,8 +12,8 @@ import {
     setBatchCount,
 } from '../../src/settings/defaults.js';
 
-test('BATCH_LIMITS is 4 per model and 8 in total, frozen', () => {
-    assert.deepEqual(BATCH_LIMITS, { perModel: 4, total: 8 });
+test('BATCH_LIMITS is 8 per model and 16 in total, frozen', () => {
+    assert.deepEqual(BATCH_LIMITS, { perModel: 8, total: 16 });
     assert.ok(Object.isFrozen(BATCH_LIMITS));
 });
 
@@ -29,24 +29,24 @@ test('normalizeBatch: entries without a non-empty string model are dropped, mode
 });
 
 test('normalizeBatch: a model listed twice keeps its first entry, also after trimming', () => {
-    const list = [{ model: 'a', count: 2 }, { model: 'b', count: 1 }, { model: ' a ', count: 4 }];
+    const list = [{ model: 'a', count: 2 }, { model: 'b', count: 1 }, { model: ' a ', count: 8 }];
     assert.deepEqual(normalizeBatch(list), [{ model: 'a', count: 2 }, { model: 'b', count: 1 }]);
 });
 
-test('normalizeBatch: count is an integer clamped to 1..4, no finite number gives 1', () => {
+test('normalizeBatch: count is an integer clamped to 1..8, no finite number gives 1', () => {
     const list = [
-        { model: 'a', count: 0 }, { model: 'b', count: -3 }, { model: 'c', count: 9 },
+        { model: 'a', count: 0 }, { model: 'b', count: -3 }, { model: 'c', count: 12 },
         { model: 'd', count: 2.7 }, { model: 'e', count: NaN }, { model: 'f', count: '3' },
         { model: 'g', count: Infinity }, { model: 'h' },
     ];
-    assert.deepEqual(normalizeBatch(list).map((entry) => entry.count), [1, 1, 4, 2]);
+    assert.deepEqual(normalizeBatch(list).map((entry) => entry.count), [1, 1, 8, 2, 1, 1, 1, 1]);
     const rest = normalizeBatch(list.slice(4));
     assert.deepEqual(rest, [{ model: 'e', count: 1 }, { model: 'f', count: 1 }, { model: 'g', count: 1 }, { model: 'h', count: 1 }]);
 });
 
 test('normalizeBatch: an entry beyond the total is cut to what is left, entries with nothing left are dropped', () => {
-    const list = [{ model: 'a', count: 4 }, { model: 'b', count: 3 }, { model: 'c', count: 3 }, { model: 'd', count: 1 }];
-    assert.deepEqual(normalizeBatch(list), [{ model: 'a', count: 4 }, { model: 'b', count: 3 }, { model: 'c', count: 1 }]);
+    const list = [{ model: 'a', count: 8 }, { model: 'b', count: 6 }, { model: 'c', count: 6 }, { model: 'd', count: 1 }];
+    assert.deepEqual(normalizeBatch(list), [{ model: 'a', count: 8 }, { model: 'b', count: 6 }, { model: 'c', count: 2 }]);
 });
 
 test('addToBatch: a new model is appended with count 1', () => {
@@ -58,14 +58,14 @@ test('addToBatch: a listed model gets count + 1', () => {
     assert.deepEqual(addToBatch([{ model: 'a', count: 2 }, { model: 'b', count: 1 }], 'a'), [{ model: 'a', count: 3 }, { model: 'b', count: 1 }]);
 });
 
-test('addToBatch: a model at 4 stays unchanged', () => {
-    const list = [{ model: 'a', count: 4 }];
+test('addToBatch: a model at 8 stays unchanged', () => {
+    const list = [{ model: 'a', count: 8 }];
     assert.deepEqual(addToBatch(list, 'a'), list);
 });
 
-test('addToBatch: a list at 8 stays unchanged, for a new and a listed model', () => {
-    const list = [{ model: 'a', count: 4 }, { model: 'b', count: 3 }, { model: 'c', count: 1 }];
-    assert.equal(batchTotal(list), 8);
+test('addToBatch: a list at 16 stays unchanged, for a new and a listed model', () => {
+    const list = [{ model: 'a', count: 8 }, { model: 'b', count: 6 }, { model: 'c', count: 2 }];
+    assert.equal(batchTotal(list), 16);
     assert.deepEqual(addToBatch(list, 'd'), list);
     assert.deepEqual(addToBatch(list, 'c'), list);
 });
@@ -80,12 +80,12 @@ test('addToBatch returns a new list and leaves the input alone', () => {
 test('setBatchCount sets the count of a listed model, normalised', () => {
     const list = [{ model: 'a', count: 1 }, { model: 'b', count: 1 }];
     assert.deepEqual(setBatchCount(list, 'b', 3), [{ model: 'a', count: 1 }, { model: 'b', count: 3 }]);
-    assert.deepEqual(setBatchCount(list, 'a', 9), [{ model: 'a', count: 4 }, { model: 'b', count: 1 }]);
+    assert.deepEqual(setBatchCount(list, 'a', 9), [{ model: 'a', count: 8 }, { model: 'b', count: 1 }]);
     assert.deepEqual(setBatchCount(list, 'a', NaN), [{ model: 'a', count: 1 }, { model: 'b', count: 1 }]);
     assert.deepEqual(setBatchCount(list, 'x', 3), list);
-    const full = [{ model: 'a', count: 4 }, { model: 'b', count: 4 }];
-    assert.deepEqual(setBatchCount([{ model: 'a', count: 2 }, { model: 'b', count: 4 }], 'a', 4), full);
-    assert.deepEqual(setBatchCount(full, 'a', 1), [{ model: 'a', count: 1 }, { model: 'b', count: 4 }]);
+    const full = [{ model: 'a', count: 8 }, { model: 'b', count: 8 }];
+    assert.deepEqual(setBatchCount([{ model: 'a', count: 2 }, { model: 'b', count: 8 }], 'a', 8), full);
+    assert.deepEqual(setBatchCount(full, 'a', 1), [{ model: 'a', count: 1 }, { model: 'b', count: 8 }]);
 });
 
 test('removeFromBatch drops the model', () => {
@@ -98,7 +98,7 @@ test('batchTotal counts the pictures of the normalised list', () => {
     assert.equal(batchTotal([]), 0);
     assert.equal(batchTotal(undefined), 0);
     assert.equal(batchTotal([{ model: 'a', count: 2 }, { model: 'b', count: 3 }]), 5);
-    assert.equal(batchTotal([{ model: 'a', count: 4 }, { model: 'b', count: 4 }, { model: 'c', count: 4 }]), 8);
+    assert.equal(batchTotal([{ model: 'a', count: 8 }, { model: 'b', count: 8 }, { model: 'c', count: 8 }]), 16);
 });
 
 test('expandImageJobs: an empty list gives the fallback model', () => {
@@ -128,11 +128,11 @@ test('normalizeSettings: batch defaults to an empty list per provider', () => {
 test('normalizeSettings normalises batch per provider and drops unknown providers', () => {
     const batch = {
         nanogpt: [{ model: ' a ', count: 9 }, { model: 'a', count: 1 }, { model: 'b', count: 2 }],
-        openrouter: [{ model: 'x', count: 5 }, { model: 'y', count: 5 }],
+        openrouter: [{ model: 'x', count: 9 }, { model: 'y', count: 9 }],
         other: [{ model: 'z', count: 1 }],
     };
     assert.deepEqual(normalizeSettings({ batch }).batch, {
-        nanogpt: [{ model: 'a', count: 4 }, { model: 'b', count: 2 }],
-        openrouter: [{ model: 'x', count: 4 }, { model: 'y', count: 4 }],
+        nanogpt: [{ model: 'a', count: 8 }, { model: 'b', count: 2 }],
+        openrouter: [{ model: 'x', count: 8 }, { model: 'y', count: 8 }],
     });
 });

@@ -18,9 +18,13 @@ import {
     fitContext,
     finalizePrompt,
     splitShownLine,
+    cleanMessageText,
+    truncateText,
+    LIMITS,
     POV_SENTENCE,
     USER_SHOWN_SENTENCE,
 } from './scene.js';
+import { splitPictureLines } from './pictures.js';
 import {
     knownNames,
     matchName,
@@ -34,14 +38,26 @@ import {
 export const IMAGE_PROMPT_MIN_TOKENS = 2000;
 
 const EMPTY_ANSWER = 'leere Antwort';
+// Each further picture description needs room in the reply on top of the one description of today.
+const TOKENS_PER_EXTRA_PROMPT = 300;
+const REQUEST_LOOKBACK = 10;
 
 function buildCharacterBlockFromChat(userName) {
     const notes = getCharacterNotes().map((note) => ({ ...note, description: substituteMacros(note.description) }));
     return buildCharacterBlock({ characters: collectCharacters(notes), userName });
 }
 
-// -> { description, names } with names = null when the answer carried no "Shown:" line.
-async function askChatModel({ instruction, sceneBlock, userName, known, settings }) {
+// The owner writes the picture wishes into the own message, so the latest one of the user carries them.
+function findRequestMessage(lastIndex) {
+    for (let index = lastIndex; index >= 0 && index > lastIndex - REQUEST_LOOKBACK; index--) {
+        const snapshot = getMessageSnapshot(index);
+        if (snapshot?.isUser) return `${snapshot.name}: ${truncateText(cleanMessageText(snapshot.text), LIMITS.messageChars)}`;
+    }
+    return '';
+}
+
+// -> { descriptions, names } with names = null when the answer carried no "Shown:" line.
+async function askChatModel({ instruction, sceneBlock, userName, known, settings, maxPrompts, requestMessage }) {
     try {
         const request = buildLlmRequest({
             instruction,
@@ -50,16 +66,21 @@ async function askChatModel({ instruction, sceneBlock, userName, known, settings
             knownNames: known,
             description: settings.description,
             maxWords: settings.descriptionWords,
+            maxPrompts,
+            requestMessage,
         });
-        const answer = await generateText({ ...request, minResponseTokens: IMAGE_PROMPT_MIN_TOKENS });
+        const minResponseTokens = IMAGE_PROMPT_MIN_TOKENS + TOKENS_PER_EXTRA_PROMPT * (maxPrompts - 1);
+        const answer = await generateText({ ...request, minResponseTokens });
         const { names, text } = splitShownLine(answer);
-        const description = cleanLlmOutput(text);
-        if (!description) console.warn(`${LOG_PREFIX} chat model returned an empty image prompt, using the direct prompt`);
-        return { description, names: names.length > 0 ? names : null, problem: description ? null : EMPTY_ANSWER };
+        const pictures = maxPrompts > 1 ? splitPictureLines(text, { max: maxPrompts }) : [];
+        const single = pictures.length > 0 ? '' : cleanLlmOutput(text);
+        const descriptions = pictures.length > 0 ? pictures : (single ? [single] : []);
+        if (descriptions.length === 0) console.warn(`${LOG_PREFIX} chat model returned an empty image prompt, using the direct prompt`);
+        return { descriptions, names: names.length > 0 ? names : null, problem: descriptions.length > 0 ? null : EMPTY_ANSWER };
     } catch (error) {
         // An image is still better than none: fall back to the raw scene description.
         console.warn(`${LOG_PREFIX} image prompt via chat model failed, using the direct prompt:`, error?.message ?? error);
-        return { description: '', names: null, problem: String(error?.message ?? error) || EMPTY_ANSWER };
+        return { descriptions: [], names: null, problem: String(error?.message ?? error) || EMPTY_ANSWER };
     }
 }
 
@@ -80,7 +101,8 @@ async function loadReferences(selected, loaded) {
 }
 
 // Asks the chat model once per run; composeImagePrompt then fits the result to each model of the run.
-export async function describeScene({ lastIndex, settings, candidates = [] }) {
+export async function describeScene({ lastIndex, settings, candidates = [], maxPrompts = 1 }) {
+    const prompts = Number.isInteger(maxPrompts) && maxPrompts > 1 ? maxPrompts : 1;
     const known = knownNames(candidates);
     const userName = getParticipantNames().user;
     // The user is drawn only when a checked picture shows them; otherwise the picture stays in their view.
@@ -95,39 +117,42 @@ export async function describeScene({ lastIndex, settings, candidates = [] }) {
     const sceneBlock = buildSceneBlock(context);
     const instruction = substituteMacros(settings.instruction + (userShown ? USER_SHOWN_SENTENCE : POV_SENTENCE));
 
-    let description = '';
+    let descriptions = [];
     let reported = null;
     // Why the chat model gave no description; the caller tells the owner, who otherwise only sees a worse picture.
     let llmProblem = null;
     if (settings.useLlm) {
-        ({ description, names: reported, problem: llmProblem } = await askChatModel({ instruction, sceneBlock, userName, known, settings }));
+        const requestMessage = prompts > 1 ? findRequestMessage(lastIndex) : '';
+        ({ descriptions, names: reported, problem: llmProblem } = await askChatModel({
+            instruction, sceneBlock, userName, known, settings, maxPrompts: prompts, requestMessage,
+        }));
     }
-    const usedLlm = Boolean(description);
+    const usedLlm = descriptions.length > 0;
     let shownNames = usedLlm && reported
         ? resolveShownNames(reported, known)
         : findNamesInText(context.recent.at(-1)?.text ?? '', known);
     if (!userShown && userName) shownNames = shownNames.filter((name) => matchName(name, [userName]) === null);
 
-    return { context, instruction, description, usedLlm, shownNames, llmProblem, loaded: new Map() };
+    return { context, instruction, descriptions, usedLlm, shownNames, llmProblem, loaded: new Map() };
 }
 
 export async function composeImagePrompt(scene, { settings, candidates = [], maxPromptChars, maxReferences = 0 }) {
-    const { context, instruction, description, usedLlm, shownNames, loaded } = scene;
+    const { context, instruction, descriptions, usedLlm, shownNames, loaded } = scene;
     const selected = selectReferences({ candidates, sceneNames: shownNames, maxImages: maxReferences });
     const { references, failedReferences } = await loadReferences(selected, loaded);
     const preamble = buildReferencePreamble(references);
 
-    let text = description;
+    let texts = descriptions;
     if (!usedLlm) {
         // finalizePrompt cuts from the end, so a long first message would push the latest messages out;
         // the preamble goes in front and takes its share of the budget first.
         const budget = directSceneBudget({ instruction, styleSuffix: settings.styleSuffix, maxChars: maxPromptChars }) - preamble.length;
         const fitted = fitContext(context, budget);
-        text = buildDirectPrompt({ instruction, sceneBlock: buildSceneBlock(fitted, { currentFirst: true }) });
+        texts = [buildDirectPrompt({ instruction, sceneBlock: buildSceneBlock(fitted, { currentFirst: true }) })];
     }
 
     return {
-        prompt: finalizePrompt(preamble + text, { styleSuffix: settings.styleSuffix, maxChars: maxPromptChars }),
+        prompts: texts.map((text) => finalizePrompt(preamble + text, { styleSuffix: settings.styleSuffix, maxChars: maxPromptChars })),
         references,
         failedReferences,
     };

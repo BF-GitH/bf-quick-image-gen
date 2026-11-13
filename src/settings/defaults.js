@@ -147,7 +147,7 @@ export function toggleFavorite(list, modelId) {
     return current.includes(modelId) ? current.filter((id) => id !== modelId) : [...current, modelId];
 }
 
-export const BATCH_LIMITS = Object.freeze({ perModel: 4, total: 8 });
+export const BATCH_LIMITS = Object.freeze({ perModel: 8, total: 16 });
 
 function toBatchCount(value) {
     if (typeof value !== 'number' || !Number.isFinite(value)) return 1;

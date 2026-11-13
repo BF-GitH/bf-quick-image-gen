@@ -1692,3 +1692,371 @@ discarded and the message-gone error is thrown. With `autoSaveDialog` the save d
 SillyTavern test instance: list `hidream-o1-image-dev` x1 and `z-image-turbo` x2. One run attaches three
 pictures to one reply, all visible below each other; the gallery holds three records with the right models;
 the prompt preview shows what each model gets; one more press on the picture button adds the next ones below.
+
+## 18. Several prompts per run, pictures arrive one by one (version 1.8.0, **BINDING**)
+
+Owner's request: with a list like "HiDream x8, Seedream x8" every picture is to get a slightly different angle
+or style. The owner writes the wishes into the own message as an out-of-character note ("one picture like a
+polaroid; one from the front; one from the view of someone walking by; one like on a movie set"). The chat
+model turns them into several prompts; the extension, never the chat model, decides which model gets which
+prompt how often.
+
+Decisions taken with the owner:
+- One request to the chat model returns all prompts (one line per wish), not one request per wish.
+- Distribution is dealing cards over the jobs in list order: job 1 -> prompt 1, job 2 -> prompt 2, ..., then
+  again prompt 1. With 2 prompts and "HiDream x8, Seedream x8" each model draws each prompt 4 times.
+- The number of pictures and their models come from the list alone. A chat model that writes no or broken
+  wishes costs nothing but variety: all pictures get the one normal prompt.
+- Limits 8 per model and 16 per run; at most 4 requests in flight; every picture appears as soon as it is
+  finished; the reply waits only for the first one.
+- Pictures of a run with wishes are tagged but not checked as reference pictures (a polaroid look would
+  otherwise carry over into the next pictures).
+
+The work is cut into two lanes with disjoint files. Lane A owns everything PURE, the tests and the documents;
+lane B owns the wiring. Lane B codes against the signatures below; they are binding for both.
+
+### 18.1 PURE (lane A): `src/settings/defaults.js`
+`BATCH_LIMITS = { perModel: 8, total: 16 }`. Nothing else changes; the view reads the limits from there.
+
+### 18.2 PURE (lane A): new file `src/prompt/pictures.js`
+```js
+export const PICTURE_PROMPT_LIMIT = 8;
+export function splitPictureLines(text, { max = PICTURE_PROMPT_LIMIT } = {})   // -> string[]
+export function assignPrompts(jobCount, promptCount)                           // -> number[] of length jobCount
+```
+- `splitPictureLines` gets the chat model's answer after `splitShownLine` took the `Shown:` line away. A line
+  that starts (after optional spaces and the characters `> * _` and backtick, quote marks, `-`, `#`) with the
+  word `Picture`, a number and one of `: . ) -` begins a picture; the comparison ignores case and the number
+  itself is not used (order of appearance counts). Lines after it that begin no picture belong to it. Every
+  picture text goes through `cleanLlmOutput` of `scene.js`; empty ones are dropped; at most `max` are returned.
+  No such line -> `[]`. Text in front of the first picture line is ignored.
+- `assignPrompts`: index `i` gets `i % Math.min(promptCount, jobCount)`; `promptCount` below 1 counts as 1;
+  `jobCount` below 1 -> `[]`.
+
+### 18.3 PURE (lane A): `src/prompt/scene.js`
+```js
+export function buildSystemPrompt({ description, maxWords, maxPrompts = 1 } = {})
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [], description, maxWords, maxPrompts = 1, requestMessage = '' })
+export function promptPreviewText(entries)
+```
+- `buildSystemPrompt`: `maxPrompts` that is not an integer above 1 -> exactly today's text (the existing tests
+  keep asserting it). Above 1 (clamped to `PICTURE_PROMPT_LIMIT`) today's text is followed by one space and:
+
+  `Exception for several pictures: the block "[Picture requests]" repeats the latest message of the user. When that message asks for several different pictures of this moment, for example in an out-of-character note with one camera angle, style or format per picture, write one description per requested picture instead of line 2, at most <maxPrompts>. Put each on its own line that starts with "Picture 1:", "Picture 2:" and so on, in the order they were asked for. Each of these descriptions stands on its own, follows every rule for line 2 and carries out the request for its picture. When the message asks for no such thing, answer in the two lines described above.`
+- `buildLlmRequest`: passes `maxPrompts` on. With `maxPrompts` above 1 and a `requestMessage` that is not
+  empty after trimming, the block `[Picture requests]\n<requestMessage>` and an empty line are inserted directly
+  in front of the final `Image prompt:` line (after the scene block). Otherwise the prompt is exactly today's.
+- `promptPreviewText`: as today one block per distinct prompt in the order of first appearance, but the head
+  line now counts: each distinct model id of the block, followed by ` x<n>` when it gets that prompt more than
+  once (`hidream-o1-image-dev x4, seedream-v4.5 x4:`), joined by `, `, ended with `:`. All entries share one
+  prompt -> that prompt without a head line, as today. (The multiplication sign is the plain letter x.)
+
+### 18.4 PURE (lane A): new file `src/flow/image-pool.js`
+```js
+export function createImagePool({ jobs, produce, limit = 4, signal, discard })
+// -> { total, failures, next(), abort() }
+```
+- `jobs`: array of anything. `produce(job, index, signal)` returns a promise; `signal` is the pool's own abort
+  signal. At most `limit` calls are in flight; jobs start in order, the next one as soon as one settles. The
+  first `limit` jobs start synchronously inside `createImagePool`.
+- `next()`: promise for the next successful result as `{ index, job, value }`, in the order the results
+  arrived (results that arrived before the call are queued). It resolves `null` once every job has settled or
+  was never started because of an abort, and the queue is empty. Several pending `next()` calls are served in
+  call order.
+- `failures`: live array of `{ index, job, error }` in the order they happened. A failure never stops the
+  other jobs.
+- `abort()`: no further job starts, the pool's signal is aborted, queued results and results that still
+  arrive are handed to `discard(value)` (when given) and never to `next()`, pending and later `next()` calls
+  resolve `null`. Calling it twice is harmless. An abort of the outer `signal` does the same; a `signal` that
+  is already aborted starts nothing.
+- Rejections of jobs after an abort are not added to `failures`. Nothing in the pool throws out of a
+  callback: an exception inside `discard` is swallowed.
+- `total` is `jobs.length`.
+
+Both new PURE files are added to `PURE_FILES` in `tests/architecture.test.js` (the only change there).
+
+### 18.5 WIRING (lane B): `src/prompt/build.js`
+```js
+export const IMAGE_PROMPT_MIN_TOKENS = 2000;      // unchanged
+export async function describeScene({ lastIndex, settings, candidates = [], maxPrompts = 1 })
+// -> { context, instruction, descriptions, usedLlm, shownNames, llmProblem, loaded }
+export async function composeImagePrompt(scene, { settings, candidates = [], maxPromptChars, maxReferences = 0 })
+// -> { prompts, references, failedReferences }
+```
+- `describeScene`: `description` becomes `descriptions` (array). With `maxPrompts` above 1 the request carries
+  `maxPrompts` and `requestMessage`: the nearest message with `isUser` at or before `lastIndex`, looking back at
+  most 10 messages, as `<name>: <text>` with the text cleaned by `cleanMessageText` and cut with
+  `truncateText(..., LIMITS.messageChars)`; none found -> `''`. The answer is split with `splitShownLine`, then
+  `splitPictureLines`; pictures found -> they are the descriptions; none -> the one `cleanLlmOutput` text as
+  today. `usedLlm` is `descriptions.length > 0`. The reply length asked for is
+  `IMAGE_PROMPT_MIN_TOKENS + 300 * (maxPrompts - 1)`. One `Shown:` line holds for all pictures of the run.
+- `composeImagePrompt`: one prompt per description (same references and preamble, each finalised on its own);
+  without descriptions the one direct prompt as today.
+
+### 18.6 WIRING (lane B): `src/flow/generate-image.js`
+```js
+prepared = { images, pool, total, wishes, preview, providerId, folder, names }
+export async function prepareImage(lastIndex, { signal, onPrompt } = {})          // -> prepared
+export async function attachPreparedImage(messageIndex, prepared, { token, save = false } = {})
+export async function attachRemainingImages(messageIndex, prepared, { token, signal, onProgress } = {})
+// -> { attached, failed, firstError, gone }
+export function discardPreparedImage(prepared)
+export async function generateImageForMessage(messageIndex, { signal, saveBefore, saveAfterAttach, onPrompt } = {})
+// -> { url, prompt, prepared, token }
+```
+`prepareImage`:
+1. Target, jobs (`expandImageJobs`), model infos as today. `maxPrompts` for `describeScene` is
+   `PICTURE_PROMPT_LIMIT` when the run has more than one job, otherwise 1.
+2. Prompts per distinct model via `composeImagePrompt`; job `i` gets prompt
+   `assignPrompts(jobs.length, descriptions.length)[i]` of its model. More descriptions than jobs ->
+   `notify.warning('Nur <jobs> von <descriptions> Bildwünschen werden gemalt: der Durchgang hat nur <jobs> Bilder.')`.
+3. `onPrompt(preview)` once, as in 16.1, with `preview = promptPreviewText(entries)` over all jobs; then the
+   two warnings of today.
+4. `pool = createImagePool({ jobs, produce, limit: 4, signal, discard })`: `produce` calls `produceImage` with the
+   pool's signal and returns the image entry `{ url, prompt, extension, model, ts }`; `discard` removes an
+   uploaded picture. File names as in 17.6.
+5. `await pool.next()`: the first finished picture. `null` -> the abort is thrown when the signal is aborted,
+   otherwise the error of the first failure.
+6. `images` holds that one picture; `total` is the number of jobs; `wishes` is true when the run has more
+   than one description.
+
+`attachPreparedImage` attaches and records `prepared.images` as today (everything up to the gallery records
+before the first `await`). A gallery record of a run with `wishes` gets `enabled: false`, otherwise `true` as
+today.
+
+`attachRemainingImages` takes the rest out of `prepared.pool`, one `await pool.next()` after the other:
+- Before a picture is attached it waits until the host is not generating (`isGenerating()` of `host/st.js`,
+  checked once a second), so a reply that is being written is never touched.
+- `signal` aborted -> the picture is discarded, the pool aborted, the loop ends.
+- The message is no longer the same (`token`) or attaching fails -> the picture is discarded, the pool
+  aborted, `gone: true`, the loop ends.
+- Otherwise: attach, record (same rule for `enabled`), `await saveChat()`, then `onProgress({ done, total })`
+  with `done` = pictures attached so far including the first.
+- The save dialogs of `autoSaveDialog` never overlap, also across calls (one chain per run).
+- Result: `attached` (pictures attached by this call), `failed` = `pool.failures.length`, `firstError` = the
+  error of the first failure or `null`.
+
+`discardPreparedImage` removes the pictures in `prepared.images` and aborts the pool.
+`generateTestImage` is unchanged.
+
+### 18.7 WIRING (lane B): new file `src/flow/tail.js`, changes in `src/flow/send-with-image.js`
+```js
+export function createTail({ bar, notify })     // bar: the object of createHold()
+// -> { start(messageIndex, prepared, token), isActive(), cancel(), draw() }
+```
+- `start` does nothing when `prepared.total <= prepared.images.length`. Otherwise the tail becomes active,
+  draws the bar and runs `attachRemainingImages` with its own `AbortController`; a `CHAT_CHANGED` event and
+  `cancel()` abort it. Only one tail runs at a time (`start` while active is ignored with a console warning;
+  the callers below prevent it).
+- `draw()`: `bar.setStatus('Bilder: <done> von <total> fertig …', { onCancel: cancel, cancelLabel: 'Rest abbrechen' })`
+  followed by `bar.setPrompt(prepared.preview)`. It is called on start and on every progress report.
+- End of the run: the bar is cleared, the tail is inactive. `failed > 0` ->
+  `notify.warning('<failed> von <total> Bildern fehlgeschlagen: <reason of firstError>')`. `gone` ->
+  `notify.warning('Die Nachricht ist nicht mehr vorhanden.')`. An unexpected exception is logged and ends the
+  tail the same way.
+
+`send-with-image.js`:
+- The bar belongs to the tail while it is active. The two controllers and `runForMessage` get a `hold`
+  object that equals the bar except for `setStatus`: a call with `null`/`undefined` while the tail is active
+  calls `tail.draw()` instead of clearing the bar.
+- The tail starts after the first picture is attached, in all three paths: `processReply` of the hold
+  controller and `runForMessage` (both from the result of `generateImageForMessage`), and `attachImage` of
+  the parallel controller (a wrapper that still calls `attachPreparedImage` before its first `await`).
+- An active tail counts as busy: `refuseWhileBusy()` and both `precheck` functions answer `MESSAGES.busy`.
+
+### 18.8 Tests, README, version (lane A)
+- New `tests/prompt/pictures.test.js`: `splitPictureLines` (plain lines, markdown and list decoration, wrapped
+  lines, numbers out of order, empty pictures, text in front, `max`, no picture line), `assignPrompts` (the
+  owner's examples 2 prompts on 16 jobs and 4 prompts on 16 jobs, 3 prompts on 16 jobs covers every prompt,
+  more prompts than jobs, zero and garbage counts).
+- New `tests/flow/image-pool.test.js`: never more than `limit` in flight, start order, `next()` in arrival
+  order and queued results, `null` at the end, failures collected without stopping the rest, `abort()`
+  (nothing new starts, queued and late results go to `discard`, pending `next()` resolves `null`, signal
+  aborted), outer signal, already aborted signal, `discard` that throws.
+- `tests/prompt/system-prompt.test.js` and `tests/prompt/prompt-preview.test.js` get cases for 18.3; existing
+  cases change only where 18.3 changes the contract (the counted head line). `tests/settings/batch.test.js`
+  follows the new limits. No test is deleted; the count does not drop (288 before).
+- README: "Mehrere Bilder" item with the new limits, the wishes written as an out-of-character note, how the
+  prompts are dealt out, pictures arriving one by one with the reply waiting only for the first, and that
+  pictures of a run with wishes are not checked as references.
+- Version `1.8.0` in `package.json`, `package-lock.json` (both places) and `manifest.json`.
+
+### 18.9 Live test (orchestrator, neither lane)
+SillyTavern test instance, chat model `deepseek-chat`, list `z-image-turbo` x5 and `hidream-o1-image-dev` x1,
+own message with two wishes as an out-of-character note: the preview shows two prompts with the right counts
+per model, never more than four image requests run at once, the reply appears with the first picture, the
+others follow below it one by one, the six gallery records are tagged and unchecked.
+
+## 19. A separate text model for the image prompt (version 1.9.0, **BINDING**)
+
+Owner's request: choose in the settings a text model of its own that writes the image prompt, apart from the
+model the chat runs on.
+
+Decision: the text model comes from the same provider as the picture (NanoGPT or OpenRouter), is chosen from
+that provider's list of text models and uses the key the extension already resolves. An empty choice keeps
+today's behaviour (the chat model of the app writes the prompt). Read on 2026-11-13 without a key:
+`GET https://nano-gpt.com/api/v1/models?detailed=true` (619 entries, `id`, `name`,
+`architecture.output_modalities`) and `GET https://openrouter.ai/api/v1/models` (472 entries, same members).
+Both providers answer `POST .../api/v1/chat/completions` in the OpenAI shape.
+
+Cut into two steps because section 18 changes `build.js`, `generate-image.js` and `defaults.js` at the same
+time: **lane C** builds 19.1, 19.2 and the view file of 19.4 now; 19.3, the panel slot, 19.5 and 19.6 follow
+once section 18 is committed (**integration**).
+
+### 19.1 PURE (lane C): `src/providers/nanogpt.js`, `src/providers/openrouter.js`
+Both modules export in addition:
+```js
+export const TEXT_MODELS_URL    // nanogpt: 'https://nano-gpt.com/api/v1/models?detailed=true', openrouter: 'https://openrouter.ai/api/v1/models'
+export const CHAT_URL           // 'https://nano-gpt.com/api/v1/chat/completions' / 'https://openrouter.ai/api/v1/chat/completions'
+export function normalizeTextModels(json)                                   // -> [{ id, name }]
+export async function listTextModels({ signal, fetchImpl } = {})
+export function buildChatRequest({ model, systemPrompt, prompt, maxTokens })  // -> { url, body }
+export async function generateText({ apiKey, model, systemPrompt, prompt, maxTokens, signal, fetchImpl })   // -> string
+```
+- `normalizeTextModels`: list from `json.data` or the array itself; an entry needs a string `id`; an entry whose
+  `architecture.output_modalities` is an array without `'text'` is dropped (no such member: kept); `name` is the
+  entry's non-empty `name`, else the id; sorted by name with `localeCompare`.
+- `buildChatRequest`: body `{ model, messages, max_tokens, stream: false }` with a `system` message (left out
+  when `systemPrompt` is empty) followed by the `user` message; `max_tokens` only when `maxTokens` is a positive
+  number.
+- `generateText`: no key -> the same `ProviderError` as `generateImage`. Request through `requestJson` with the
+  bearer header and a 120 s timeout. The result is `choices[0].message.content`: a string as it is, an array of
+  parts as the joined `text` members of its parts, anything else `''`. No retry, no streaming.
+- What both modules share may live in `src/providers/http.js` (PURE); nothing existing changes its behaviour.
+
+### 19.2 WIRING (lane C): `src/settings/model-cache.js`
+```js
+export async function getTextModels(providerId, { force = false } = {})
+```
+Same rules as `getModels` (memory, 7-day `localStorage`, one shared request, stale list on failure) with its
+own storage key `bfqig_textmodels_v1_<providerId>` and its own memory maps. `getModels` and `getModelInfo` keep
+their behaviour.
+
+### 19.3 PURE (integration): `src/settings/defaults.js`
+`DEFAULT_SETTINGS.textModels = { nanogpt: '', openrouter: '' }` (frozen); `normalizeSettings`:
+`textModels: perProvider(src.textModels, (value) => toStr(value).trim())`. `''` means the chat model of the app.
+
+### 19.4 UI: new file `src/settings/text-model-view.js` (lane C), slot in `src/settings/panel.js` (integration)
+```js
+export function createTextModelView()     // -> { element, refresh() }
+```
+It reads and writes `settings.textModels[settings.provider]` (a missing `textModels` object counts as empty
+choices, so the file works before 19.3 lands) and lists `getTextModels(providerId)`.
+
+| Element | Id / class | Notes |
+|---|---|---|
+| label | class `bfqig-label`, `for="bfqig-text-model"` | text `Textmodell für den Bildprompt` |
+| filter | `input#bfqig-text-model-filter.text_pole`, `type="search"` | placeholder `Textmodell suchen …` |
+| select | `select#bfqig-text-model.text_pole` | first option value `''`, text `Chat-Modell der App (Standard)`; then the models that match the filter (id or name, case ignored); the stored model always stays in the list, marked ` (nicht in der Liste)` when the loaded list lacks it |
+| reload | `button#bfqig-text-model-refresh.menu_button.bfqig-icon-button` | icon `fa-solid fa-rotate`, `title`/`aria-label` `Textmodelle neu laden`; loads with `force` |
+| note | `#bfqig-text-model-note`, class `bfqig-note` | texts below; `data-state="error"` for a load error |
+
+| State | Note text |
+|---|---|
+| loading | `Textmodelle werden geladen …` |
+| load failed | the error message |
+| nothing chosen | `Der Bildprompt kommt vom Modell, mit dem du gerade chattest.` |
+| a model chosen | `Der Bildprompt kommt von <provider label> mit diesem Modell und dem Key von oben. Dein Chat-Modell bleibt, wie es ist.` |
+
+Filter and select share a row with the reload button like the image model picker (`bfqig-row`). `refresh()`
+re-reads the provider and loads its list. Integration: `<div class="bfqig-text-model-slot"></div>` directly
+after the row of the checkbox `#bfqig-use-llm`; `refresh()` on mount and on provider change.
+
+### 19.5 WIRING (integration): `src/prompt/build.js`, `src/flow/generate-image.js`
+`describeScene({ ..., textModel = null, signal })` with `textModel = { provider, apiKey, model }`. With it the
+request goes to `textModel.provider.generateText({ apiKey, model, systemPrompt, prompt, maxTokens, signal })`
+with the reply length of 18.5 as `maxTokens`; without it to the host as today. A failure or an empty answer
+takes the existing path (`llmProblem`, warning, direct prompt). `prepareImage` passes `textModel` when
+`settings.textModels[provider.id]` is not empty.
+
+### 19.6 Tests, README, version
+- Lane C: `tests/providers/text.test.js` (new): `normalizeTextModels` of both providers (data wrapper and bare
+  array, entries without id, image-only entries, missing names, order), `buildChatRequest` (with and without
+  system prompt and `maxTokens`), `generateText` with a fake `fetchImpl` (string content, parts content, empty
+  content, error status with the provider's message, no key, the bearer header and the URL).
+- Integration: defaults and normalisation of `textModels`; README item; version `1.9.0`.
+- No test is deleted; the count does not drop. `npx eslint .` clean, no JS file above 400 lines.
+
+### 19.7 Live test (orchestrator)
+SillyTavern test instance: the chat stays on `deepseek-chat`; a text model of another family chosen in the
+view writes the image prompt (the request to `chat/completions` carries it), the picture follows; with the
+choice emptied the prompt comes from the chat model again.
+
+## 20. Deleting in the chat also clears gallery and reference lists (fix, **BINDING**)
+
+Owner's report: a picture deleted in the chat stays in the Galerie tab and in the Referenzen tab.
+
+Reproduced on 2026-11-13 in the SillyTavern test instance: three pictures whose replies had been deleted with
+`/del 1` still had gallery records with `enabled: true`, so they were still listed and still went along as
+reference pictures. Cause: a record is removed only by the extension's own "Löschen"
+(`deleteGeneratedImage`); the extension listens to none of the host's delete events (`grep` for
+`MESSAGE_DELETED`, `MESSAGE_SWIPE_DELETED`, `MEDIA_ATTACHMENT_DELETED` under `src/` finds nothing).
+
+Host facts (read in `script.js` and `scripts/chats.js` of SillyTavern 1.18 and TauriTavern 2.4.0):
+- A message is deleted in place (`chat.splice(id, 1)` or `chat.length -= 1`, also by regenerate), then
+  `MESSAGE_DELETED` fires with the new chat length only. The remaining message objects keep their identity.
+- A swipe is deleted with `message.swipe_info.splice(swipeId, 1)`, then `MESSAGE_SWIPE_DELETED` fires with
+  `{ messageId, swipeId, newSwipeId }`; at that moment `message.extra` may still hold the deleted swipe.
+- The host's own picture delete removes the media entry and, when the owner leaves "Also delete files from
+  server" ticked, deletes the file and fires `MEDIA_ATTACHMENT_DELETED` with the url.
+- Neither host trims the `chat` array (TauriTavern virtualises rows, not the array).
+
+Because the first two events arrive after the fact, the extension keeps a snapshot of which of its pictures
+sit on which message and reads the loss from it. Only gallery records are removed (a generated reference
+picture is its gallery record). Files are not touched: the host's picture delete has removed the file itself,
+and a deleted message keeps its files like any message of the host does.
+
+### 20.1 HOST: `src/host/chat.js`
+```js
+export function listChatMediaUrls()     // -> [{ message, swipes }]
+```
+One entry per message of the open chat, in chat order. `message` is the live message object. `swipes` is an
+array with one array of urls per swipe: taken from `message.swipe_info[i].extra.media`, except that the entry at
+`message.swipe_id` comes from the live `message.extra.media`; a message without `swipe_info` has exactly one
+entry from `message.extra.media`. Only media entries with a non-empty string `url` count. Read-only: nothing
+on the messages is changed. No chat open -> `[]`.
+
+### 20.2 PURE: new file `src/gallery/chat-diff.js`
+```js
+export function normalizeUrl(url)                                   // leading slashes removed
+export function takeSnapshot(entries, isOwn)                        // -> snapshot
+export function goneAfterMessageDelete(snapshot, currentMessages)   // -> string[]
+export function goneAfterSwipeDelete(snapshot, message, swipeId)    // -> string[]
+```
+- `takeSnapshot`: `entries` as returned by `listChatMediaUrls`, `isOwn(normalizedUrl)` says whether a url
+  belongs to a gallery record. The snapshot keeps the messages in order and, per message and swipe, the own
+  urls (normalised).
+- `goneAfterMessageDelete`: plausible only when every message in `currentMessages` is in the snapshot (by
+  identity) and there are fewer of them than in the snapshot; otherwise `[]` (a reloaded or replaced chat must
+  never look like a delete). Result: the own urls of the snapshot messages that are no longer current, without
+  those that a remaining message still carries on any swipe; each url once.
+- `goneAfterSwipeDelete`: message not in the snapshot or `swipeId` no valid index of its swipes -> `[]`.
+  Result: the urls of that swipe, without those that another swipe of the message or another message of the
+  snapshot still carries; each url once.
+
+### 20.3 WIRING: new file `src/gallery/chat-sync.js`, one line in `index.js`
+```js
+export function installChatSync()      // idempotent
+```
+- The snapshot is taken at install and renewed on `CHAT_CHANGED`, `MESSAGE_SENT`, `MESSAGE_RECEIVED`,
+  `MESSAGE_SWIPED`, `GENERATION_ENDED`, on every gallery change (`onGalleryChange`) and on every `pointerdown`
+  and `keydown` on `document` (capture phase), so it is never older than the action that causes a delete.
+- `MESSAGE_DELETED`: `goneAfterMessageDelete(snapshot, current message objects)`.
+  `MESSAGE_SWIPE_DELETED`: `goneAfterSwipeDelete(snapshot, getRawMessage(messageId), swipeId)`.
+  `MEDIA_ATTACHMENT_DELETED`: that url when a gallery record has it.
+- Every gone url loses its gallery record (`removeGalleryRecord` with the url as the record stores it). Then
+  the snapshot is renewed. No file is deleted, no chat is saved, nothing is shown to the owner.
+- An exception inside a handler is logged and never reaches the host.
+- `index.js` calls `installChatSync()` right after `installChatImageMenu()`.
+
+### 20.4 Tests
+New `tests/gallery/chat-diff.test.js`: last message deleted; a message in the middle; several at once; a url
+that a remaining message also carries stays; a current message the snapshot does not know -> `[]`; same number
+of messages -> `[]`; urls that are not own never appear; a url with and without leading slash is one url;
+swipe deleted with and without the same url on another swipe; unknown message and invalid swipe index.
+No test is deleted; the count does not drop. `npx eslint .` clean.
+
+### 20.5 Live test (orchestrator)
+Test instance, no paid request: a reply with generated pictures is deleted with the host's own controls; its
+records are gone from the Galerie and Referenzen tabs, records of other messages and of other chats stay, and
+reloading the chat removes nothing.

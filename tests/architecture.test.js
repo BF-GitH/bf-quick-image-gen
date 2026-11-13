@@ -22,6 +22,7 @@ const WIRING_FORBIDDEN = [
 const PURE_FILES = new Set([
     'src/prompt/scene.js', 'src/flow/run-state.js', 'src/flow/messages.js', 'src/flow/preflight.js',
     'src/flow/parallel-run.js', 'src/gallery/records.js', 'src/settings/defaults.js', 'src/references/select.js',
+    'src/prompt/pictures.js', 'src/flow/image-pool.js', 'src/gallery/chat-diff.js',
 ]);
 
 // Removes // and /* */ comments while keeping strings, regex literals and nested template expressions intact.

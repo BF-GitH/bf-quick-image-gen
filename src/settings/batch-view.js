@@ -11,7 +11,7 @@ const TEXT = Object.freeze({
     add: 'Gewähltes Modell hinzufügen',
     empty: 'Leer = ein Bild mit dem oben gewählten Modell.',
     one: '1 Bild pro Durchgang. Es zählt nur diese Liste.',
-    many: (n) => `${n} Bilder pro Durchgang, alle aus derselben Beschreibung. Es zählt nur diese Liste. Jedes Bild kostet einzeln.`,
+    many: (n) => `${n} Bilder pro Durchgang. Es zählt nur diese Liste. Jedes Bild kostet einzeln.`,
 });
 
 function el(tag, props = {}) {

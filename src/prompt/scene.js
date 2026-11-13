@@ -1,6 +1,7 @@
 // Turns chat snapshots into an image prompt. Pure: the caller supplies the snapshots.
 
 import { NAME_LIMIT } from '../references/select.js';
+import { PICTURE_PROMPT_LIMIT } from './pictures.js';
 
 export const DEFAULT_INSTRUCTION = 'Depict the current moment of this roleplay as one image: what happens in the latest message. Show {{char}} and everyone else who is present in that moment.';
 
@@ -39,14 +40,25 @@ function clampWords(value) {
     return Math.min(DESCRIPTION_WORDS.max, Math.max(DESCRIPTION_WORDS.min, Math.round(value)));
 }
 
-export function buildSystemPrompt({ description, maxWords } = {}) {
+// Anything but an integer above 1 means one picture prompt, so a run with one job keeps the tuned prompt.
+function clampPrompts(value) {
+    return Number.isInteger(value) && value > 1 ? Math.min(value, PICTURE_PROMPT_LIMIT) : 1;
+}
+
+function picturesException(maxPrompts) {
+    return `Exception for several pictures: the block "[Picture requests]" repeats the latest message of the user. When that message asks for several different pictures of this moment, for example in an out-of-character note with one camera angle, style or format per picture, write one description per requested picture instead of line 2, at most ${maxPrompts}. Put each on its own line that starts with "Picture 1:", "Picture 2:" and so on, in the order they were asked for. Each of these descriptions stands on its own, follows every rule for line 2 and carries out the request for its picture. When the message asks for no such thing, answer in the two lines described above.`;
+}
+
+export function buildSystemPrompt({ description, maxWords, maxPrompts = 1 } = {}) {
     const words = clampWords(maxWords);
     const short = words <= SHORT_PROMPT_WORDS;
     const line2 = `Line 2: one ${short ? 'short ' : ''}description in plain English, at most ${words} words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: ${cleanDescription(description)}.`;
     const weight = short
         ? 'Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen.'
         : 'The most important things come first and nothing is mentioned that cannot be seen.';
-    return `${SYSTEM_PROMPT_HEAD}${line2}${SYSTEM_PROMPT_NAMING}${weight}${SYSTEM_PROMPT_TAIL}`;
+    const prompt = `${SYSTEM_PROMPT_HEAD}${line2}${SYSTEM_PROMPT_NAMING}${weight}${SYSTEM_PROMPT_TAIL}`;
+    const prompts = clampPrompts(maxPrompts);
+    return prompts > 1 ? `${prompt} ${picturesException(prompts)}` : prompt;
 }
 
 const THINK_BLOCKS = /<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
@@ -216,16 +228,20 @@ export function buildCharacterBlock({ characters, userName }) {
 // The list only fixes spelling, so the names the chat model reports can be matched to reference pictures.
 const KNOWN_NAMES_HEADING = '[Known names, for spelling only]';
 
-export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [], description, maxWords }) {
+const PICTURE_REQUESTS_HEADING = '[Picture requests]';
+
+export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [], description, maxWords, maxPrompts = 1, requestMessage = '' }) {
     const names = (Array.isArray(knownNames) ? knownNames : []).map(toText).filter((name) => name.trim());
     const characters = toText(characterBlock);
     const middle = [names.length > 0 ? `${KNOWN_NAMES_HEADING}\n${names.join(', ')}` : '', characters]
         .filter(Boolean)
         .map((block) => `${block}${SECTION_SEPARATOR}`)
         .join('');
+    const request = toText(requestMessage).trim();
+    const requests = clampPrompts(maxPrompts) > 1 && request ? `${PICTURE_REQUESTS_HEADING}\n${request}${SECTION_SEPARATOR}` : '';
     return {
-        systemPrompt: buildSystemPrompt({ description, maxWords }),
-        prompt: `Task: ${toText(instruction)}${SECTION_SEPARATOR}${middle}${toText(sceneBlock)}\n\nImage prompt:`,
+        systemPrompt: buildSystemPrompt({ description, maxWords, maxPrompts }),
+        prompt: `Task: ${toText(instruction)}${SECTION_SEPARATOR}${middle}${toText(sceneBlock)}\n\n${requests}Image prompt:`,
     };
 }
 
@@ -286,10 +302,11 @@ export function promptPreviewText(entries) {
     if (!Array.isArray(entries) || entries.length === 0) return '';
     const groups = new Map();
     for (const { model, prompt } of entries) {
-        const models = groups.get(prompt) ?? [];
-        if (!models.includes(model)) models.push(model);
-        groups.set(prompt, models);
+        const counts = groups.get(prompt) ?? new Map();
+        counts.set(model, (counts.get(model) ?? 0) + 1);
+        groups.set(prompt, counts);
     }
     if (groups.size === 1) return entries[0].prompt;
-    return [...groups].map(([prompt, models]) => `${models.join(', ')}:\n${prompt}`).join('\n\n');
+    const head = (counts) => [...counts].map(([model, n]) => (n > 1 ? `${model} x${n}` : model)).join(', ');
+    return [...groups].map(([prompt, counts]) => `${head(counts)}:\n${prompt}`).join('\n\n');
 }

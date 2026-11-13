@@ -4,6 +4,7 @@
 import { createSendWithImageController, MESSAGES } from './run-state.js';
 import { createParallelImageController } from './parallel-run.js';
 import { createHold } from './hold.js';
+import { createTail } from './tail.js';
 import {
     attachPreparedImage,
     captureMessage,
@@ -25,7 +26,7 @@ function isAbort(error, signal) {
 }
 
 export function initSendWithImage() {
-    const hold = createHold();
+    const bar = createHold();
     // Per message index: the chat id and the live message object at failure time. A retry may only touch
     // exactly that message; after a chat switch or a deleted/swapped message the index means something else.
     const failures = new Map();
@@ -53,7 +54,7 @@ export function initSendWithImage() {
     function precheckExcept(own) {
         return async () => {
             const other = own === 'hold' ? parallelController : holdController;
-            if (retrying || other?.isActive()) throw new Error(MESSAGES.busy);
+            if (retrying || other?.isActive() || tail.isActive()) throw new Error(MESSAGES.busy);
             await checkConfiguration();
         };
     }
@@ -62,6 +63,29 @@ export function initSendWithImage() {
         warning: (message) => notify.warning(message),
         error: (message) => notify.error(message),
     };
+
+    const tail = createTail({ bar, notify: toastNotify });
+    // The bar belongs to the tail while it runs: a job that ends hands the bar back to the tail's count.
+    const hold = {
+        ...bar,
+        setStatus: (text, options) => {
+            if ((text === null || text === undefined) && tail.isActive()) tail.draw();
+            else bar.setStatus(text, options);
+        },
+    };
+
+    // The tail takes the pictures that follow the first one; the reply waited only for that first one.
+    async function processReply(index, signal) {
+        const { prepared, token } = await generateImageForMessage(index, { signal, saveBefore: true, onPrompt: hold.setPrompt });
+        // The hold controller drops a result that comes after its cancel or timeout.
+        if (!signal.aborted) tail.start(index, prepared, token);
+    }
+
+    // attachPreparedImage runs before the first await, as the parallel controller requires.
+    async function attachImage(index, prepared, options) {
+        await attachPreparedImage(index, prepared, options);
+        tail.start(index, prepared, options?.token);
+    }
 
     holdController = createSendWithImageController({
         host: {
@@ -75,7 +99,7 @@ export function initSendWithImage() {
             onEvent: onHostEvent,
         },
         precheck: precheckExcept('hold'),
-        processReply: (index, signal) => generateImageForMessage(index, { signal, saveBefore: true, onPrompt: hold.setPrompt }),
+        processReply,
         hold,
         notify: toastNotify,
         onFailure: showFailure,
@@ -94,7 +118,7 @@ export function initSendWithImage() {
         precheck: precheckExcept('parallel'),
         prepareImage: (lastIndex, signal) => prepareImage(lastIndex, { signal, onPrompt: hold.setPrompt }),
         captureReply: captureMessage,
-        attachImage: attachPreparedImage,
+        attachImage,
         discardImage: discardPreparedImage,
         status: hold,
         notify: toastNotify,
@@ -103,7 +127,7 @@ export function initSendWithImage() {
 
     // Retry and the message button share the job slot, the status bar and the failure toast.
     function refuseWhileBusy() {
-        if (retrying || holdController.isActive() || parallelController.isActive()) {
+        if (retrying || holdController.isActive() || parallelController.isActive() || tail.isActive()) {
             notify.warning(MESSAGES.busy);
             return true;
         }
@@ -149,8 +173,9 @@ export function initSendWithImage() {
         // The text is already visible on a retry, so "Text sofort zeigen" would promise nothing.
         hold.setStatus(MESSAGES.statusImage, { onCancel: () => abort.abort(), cancelLabel: 'Abbrechen' });
         try {
-            await generateImageForMessage(messageIndex, { signal: abort.signal, saveAfterAttach: true, onPrompt: hold.setPrompt });
+            const { prepared, token } = await generateImageForMessage(messageIndex, { signal: abort.signal, saveAfterAttach: true, onPrompt: hold.setPrompt });
             failures.delete(messageIndex);
+            tail.start(messageIndex, prepared, token);
         } catch (error) {
             if (!isAbort(error, abort.signal)) showFailure(messageIndex, error);
         } finally {

@@ -50,10 +50,21 @@ Disable or remove the original if you no longer want its palette button and sett
    picture that is going wrong can be cancelled early.
 9. Reply deleted and your own message is the last one in the chat: the picture button of that message writes the
    reply again and then the picture, in both modes. The message box must be empty for this.
-10. "Mehrere Bilder" under the model list makes several pictures per run: add models with a count each (up to 4
-    per model, 8 in total). All pictures come from the same description, every picture is paid for on its own,
-    and all pictures of a run must arrive within four minutes. An empty list means one picture with the chosen
+10. "Mehrere Bilder" under the model list makes several pictures per run: add models with a count each (up to 8
+    per model, 16 in total). Every picture is paid for on its own. An empty list means one picture with the chosen
     model; "Testbild generieren" always makes one.
+    - Different pictures: write your wishes into your own message as an out-of-character note, for example
+      `((one picture like a polaroid; one from the front; one from the view of someone walking by))`. The chat model
+      writes one prompt per wish (at most 8). Without such a note all pictures get the same prompt.
+    - The extension, not the chat model, decides who gets which prompt: the prompts are dealt out like cards over
+      the list in order (picture 1 gets prompt 1, picture 2 prompt 2, then prompt 1 again). With two wishes and
+      "HiDream x8, Seedream x8" each model draws each prompt four times. "Prompt anzeigen" shows every prompt with
+      its models and counts.
+    - At most four pictures are requested at once. The reply waits only for the first picture, which must arrive
+      within four minutes; the others follow below it one by one as they finish. "Rest abbrechen" in the status bar
+      stops the ones still missing.
+    - Pictures of a run with wishes are tagged but not checked as reference pictures, so a polaroid look does not
+      carry over into the next pictures. Check the ones you want to use.
 11. The pictures of a message appear below each other; one more picture for the message goes below the ones
     already there.
 
@@ -76,7 +87,8 @@ A reference picture does.
 - Only checked pictures are used, at most two per character and never more than the model takes.
 - A picture that shows several characters of the scene goes first, so four characters fit into three pictures.
   A picture with someone who is not in the scene stays out.
-- Every generated image is tagged with the characters on it and is checked by itself. Delete or uncheck the ones
+- Every generated image is tagged with the characters on it and is checked by itself (except in a run with
+  wishes, see "Mehrere Bilder"). Delete or uncheck the ones
   you do not like, otherwise their flaws carry over.
 - You appear in pictures only when a checked reference carries your persona name; otherwise the picture is seen
   through your eyes.
