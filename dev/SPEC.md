@@ -2060,3 +2060,17 @@ No test is deleted; the count does not drop. `npx eslint .` clean.
 Test instance, no paid request: a reply with generated pictures is deleted with the host's own controls; its
 records are gone from the Galerie and Referenzen tabs, records of other messages and of other chats stay, and
 reloading the chat removes nothing.
+
+## 21. Longer time limits for pictures (version 1.9.1, **BINDING**)
+
+Owner's request: 180 seconds per picture are too little, ten minutes instead.
+
+- `TIMEOUT_MS` of the image request in `src/providers/nanogpt.js` and `src/providers/openrouter.js`: 600000.
+- `imagingTimeoutMs` in `src/flow/run-state.js` and `src/flow/parallel-run.js` (the wait for the first picture):
+  660000, one minute above the request limit, so the request's own limit with its exact message fires first.
+- Unchanged: the 120 s of the text model request, the 60 s for downloading a picture by url, the default of
+  `requestJson` for the model lists.
+- In hold mode the reply can now wait up to eleven minutes for the first picture; "Text sofort zeigen" shows it
+  earlier.
+- A connection that is cut before the answer arrives ("Netzwerkfehler (Failed to fetch)") is not a time limit of
+  the extension and is not changed by this.

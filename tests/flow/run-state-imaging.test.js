@@ -51,7 +51,7 @@ test('imaging timeout reports the timeout, aborts the signal and finishes', asyn
     const index = pushReply(ctx.state);
     const emitted = ctx.bus.emit('MESSAGE_RECEIVED', index, 'normal');
     await flush();
-    ctx.timers.advance(239999);
+    ctx.timers.advance(659999);
     await flush();
     assert.equal(ctx.controller.isActive(), true);
     ctx.timers.advance(1);
@@ -98,7 +98,7 @@ test('processReply resolving normally clears the imaging timeout', async () => {
     gate.resolve();
     await emitted;
     assert.equal(ctx.timers.pendingCount(), 0);
-    ctx.timers.advance(240000);
+    ctx.timers.advance(660000);
     assert.equal(ctx.failures.length, 0);
     assert.equal(ctx.controller.isActive(), false);
 });

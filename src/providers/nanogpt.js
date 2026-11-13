@@ -15,7 +15,7 @@ export const TEXT_MODELS_URL = 'https://nano-gpt.com/api/v1/models?detailed=true
 export const CHAT_URL = 'https://nano-gpt.com/api/v1/chat/completions';
 
 const DEFAULT_PROMPT_CHARS = 4000;
-const TIMEOUT_MS = 180000;
+const TIMEOUT_MS = 600000;
 // Edit-only, upscaler, background-removal, reference, layer and segmentation entries need an input image,
 // which we never send. Tagless entries (about a third of the list) can only be judged by their id.
 const NON_GENERATIVE_RE = /(^|[/-])edit([/-]|$)|upscal|eras|remov|inpaint|image-to-image|(^|[/-])vto([/-]|$)|reference|layeriz|layer-decomposition|sam3/i;

@@ -15,7 +15,7 @@ export const TEXT_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 export const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 const DEFAULT_PROMPT_CHARS = 4000;
-const TIMEOUT_MS = 180000;
+const TIMEOUT_MS = 600000;
 
 // SVG-only models cannot be stored as a raster image.
 function isVectorOnly(model) {

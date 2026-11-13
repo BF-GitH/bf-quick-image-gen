@@ -116,7 +116,7 @@ test('imaging timeout before the reply: failure reported at reply time, late ima
     const h = setupParallel();
     await begin(h);
     h.state.generating = true;
-    h.timers.advance(240000);
+    h.timers.advance(660000);
     assert.equal(h.jobs[0].signal.aborted, true);
     assert.equal(h.controller.isActive(), true);
     assert.deepEqual(h.failures, []);
@@ -137,7 +137,7 @@ test('imaging timeout after the reply reports the failure and ends', async () =>
     await begin(h);
     const replyIndex = pushReply(h.state);
     receive(h, replyIndex);
-    h.timers.advance(240000);
+    h.timers.advance(660000);
     assert.equal(h.jobs[0].signal.aborted, true);
     assert.equal(h.failures.length, 1);
     assert.equal(h.failures[0].index, replyIndex);

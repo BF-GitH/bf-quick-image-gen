@@ -60,9 +60,9 @@ Disable or remove the original if you no longer want its palette button and sett
       the list in order (picture 1 gets prompt 1, picture 2 prompt 2, then prompt 1 again). With two wishes and
       "HiDream x8, Seedream x8" each model draws each prompt four times. "Prompt anzeigen" shows every prompt with
       its models and counts.
-    - At most four pictures are requested at once. The reply waits only for the first picture, which must arrive
-      within four minutes; the others follow below it one by one as they finish. "Rest abbrechen" in the status bar
-      stops the ones still missing.
+    - At most four pictures are requested at once. Every picture request may take up to ten minutes. The reply
+      waits only for the first picture ("Text sofort zeigen" shows it earlier); the others follow below it one by
+      one as they finish. "Rest abbrechen" in the status bar stops the ones still missing.
     - Pictures of a run with wishes are tagged but not checked as reference pictures, so a polaroid look does not
       carry over into the next pictures. Check the ones you want to use.
 11. The pictures of a message appear below each other; one more picture for the message goes below the ones

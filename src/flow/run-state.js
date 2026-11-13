@@ -8,7 +8,7 @@ import { earlyExitMessage, resendExitMessage } from './preflight.js';
 export { MESSAGES };
 
 const DEFAULT_CONFIG = Object.freeze({
-    startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000, preRequestTimeoutMs: 30000,
+    startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 660000, preRequestTimeoutMs: 30000,
 });
 // One idle tick can be the gap between two host phases; two in a row mean the host is done.
 const IDLE_TICKS_TO_FINISH = 2;
