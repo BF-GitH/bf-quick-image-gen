@@ -186,24 +186,70 @@
     object-fit: cover;
 }
 
-/* Referenzen tab: upload form, then one row per picture (thumbnail, names, checkbox, delete). */
+/* Referenzen tab: upload form, then one block per group of people with one row per picture
+   (thumbnail, names, checkbox, up, down, delete). */
 .bfqig-settings .bfqig-references,
 .bfqig-settings .bfqig-ref-upload-form,
 .bfqig-settings .bfqig-ref-list,
-.bfqig-settings .bfqig-ref-section {
+.bfqig-settings .bfqig-ref-group,
+.bfqig-settings .bfqig-ref-name-options {
     display: flex;
     flex-direction: column;
     gap: 6px;
 }
 
-.bfqig-settings .bfqig-ref-section[hidden],
+.bfqig-settings .bfqig-ref-group[hidden],
 .bfqig-settings .bfqig-ref-item[hidden],
+.bfqig-settings #bfqig-ref-names-select[hidden],
 .bfqig-settings #bfqig-ref-empty[hidden] {
     display: none;
 }
 
+.bfqig-settings #bfqig-ref-names-select {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    padding: 0 8px;
+}
+
+.bfqig-settings #bfqig-ref-names-summary {
+    min-height: var(--bfqig-touch);
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+/* display: flex removes the browser's own triangle, and without one the field does not read as a dropdown. */
+.bfqig-settings #bfqig-ref-names-summary::after {
+    content: '▾';
+    margin-left: auto;
+    padding-left: 8px;
+}
+
+.bfqig-settings #bfqig-ref-names-select[open] > #bfqig-ref-names-summary::after {
+    content: '▴';
+}
+
+.bfqig-settings .bfqig-ref-name-options {
+    max-height: 240px;
+    overflow-y: auto;
+    padding-bottom: 6px;
+}
+
+.bfqig-settings .bfqig-ref-name-options .checkbox_label {
+    min-height: var(--bfqig-touch);
+    align-items: center;
+    overflow-wrap: anywhere;
+}
+
+/* The row reacts to the width of the panel, not of the window: the settings drawer is narrow on desktop too. */
+.bfqig-settings .bfqig-ref-list {
+    container-type: inline-size;
+}
+
 .bfqig-settings .bfqig-ref-item {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
 }
@@ -211,12 +257,57 @@
 .bfqig-settings .bfqig-ref-item .bfqig-ref-item-names {
     flex: 1 1 auto;
     min-width: 0;
+    width: auto;
 }
 
 .bfqig-settings .bfqig-ref-item .bfqig-check {
     flex: 0 0 auto;
     margin: 0;
     padding: 0 4px;
+}
+
+.bfqig-settings .bfqig-ref-item .bfqig-icon-button {
+    margin: 0;
+}
+
+.bfqig-settings .bfqig-ref-item .bfqig-icon-button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.bfqig-settings .bfqig-ref-badge {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 999px;
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+/* Narrow: thumbnail and names on the first line; a full-width zero-height item forces the four controls onto
+   the second line, aligned under the names. The badge goes to the end of that line: next to the names input it
+   would wrap onto a line of its own. */
+@container (max-width: 480px) {
+    .bfqig-settings .bfqig-ref-item::after {
+        content: '';
+        order: 1;
+        flex: 0 0 100%;
+        height: 0;
+    }
+
+    .bfqig-settings .bfqig-ref-item .bfqig-check,
+    .bfqig-settings .bfqig-ref-item .bfqig-icon-button {
+        order: 2;
+    }
+
+    .bfqig-settings .bfqig-ref-item .bfqig-ref-badge {
+        order: 3;
+        margin-left: auto;
+    }
+
+    .bfqig-settings .bfqig-ref-item .bfqig-check {
+        margin-left: 62px;
+    }
 }
 
 .bfqig-settings .bfqig-ref-thumb {

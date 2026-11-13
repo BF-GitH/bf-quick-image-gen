@@ -1220,3 +1220,111 @@ the app starts (`composition/services/mod.rs`), so turning it on needs "Save" an
 `/api/secrets/settings` and `/api/secrets/read` never fail in TauriTavern for these states, so no toast appears.
 Live check in SillyTavern 1.18 with the two answers simulated: exposure off and key not stored each caused no
 `find` request. On the phone itself this is unverified.
+
+## 14. Reference groups, name picker and manual order (version 1.4.0, **BINDING**)
+
+Owner's request: when uploading, existing characters are ticked in a multi-select instead of typed again; the
+list below is grouped by who is on the pictures (one group per character, one per combination such as Kyouko +
+Yuki); the pictures of a group can be put in order by hand. This section replaces the list layout, the upload
+form and the tie-breaks of section 12; everything else of section 12 stays.
+
+### 14.1 Rules
+1. A **group** is the set of pictures with exactly the same names (ignoring case and order of the names).
+   Uploaded and generated pictures of the same people share one group.
+2. The order inside a group is the order of use: the first picture of a group is taken first.
+3. Default order of a group nobody sorted: uploads in upload order, then generated pictures newest first
+   (what section 12 did). As soon as the owner moves a picture, the group keeps exactly that order and new
+   pictures of that group go to the end. So a picture pinned to the top stays there.
+
+### 14.2 PURE: `src/references/select.js`
+```js
+export function groupKey(names)                              // -> string
+export function groupCandidates({ uploads, gallery, order }) // -> [{ key, names, items: [{ url, names, enabled, source, timestamp }] }]
+export function toCandidates({ uploads, gallery, order })    // -> flat list, as before
+export function allNames(groups)                             // -> string[]
+export function moveInList(list, value, direction)           // -> new array
+```
+- `groupKey`: `normalizeNames`, lower-cased, sorted (`localeCompare`), joined with `|`. `''` for no names.
+- `groupCandidates`: the candidates of section 12.2 (same filters and item fields; pictures without a name are
+  left out) collected by `groupKey`. A group's `names` are those of its first item in default order. Default
+  item order: uploads in list order, then gallery records in list order (newest first). `order` is a plain object
+  `{ [groupKey]: string[] }`: when it holds a non-empty array for the group, the items whose url is in that
+  array come first in that order (urls that no longer exist are ignored) and all other items follow in default
+  order. Anything else for `order` or for an entry means "not sorted". Groups are returned sorted by the number
+  of names, then by `key`.
+- `toCandidates`: the items of `groupCandidates` in group order, flattened. `knownNames` and
+  `selectReferences` keep working on that list.
+- `allNames`: every name that occurs in the groups (enabled or not), unique without regard to case (first
+  spelling wins), sorted with `localeCompare`.
+- `moveInList(list, value, direction)`: `direction` is `-1` (one place towards the front) or `1`; a copy with
+  `value` swapped with its neighbour; unchanged copy when `value` is missing or already at that end.
+- `selectReferences` ties, replacing 12.2: fewer names, then the earlier candidate. The rule "an upload before a
+  generated picture" is gone as a rule of its own: the default group order already puts uploads first, and a
+  manual order must be able to put a generated picture in front.
+
+### 14.3 PURE: `src/settings/defaults.js`
+`DEFAULT_SETTINGS.referenceOrder = {}`. `normalizeSettings`: a plain object whose values are arrays; each array
+keeps its unique non-empty strings, at most 300; keys with an empty result and non-array values are dropped;
+anything else becomes `{}`.
+
+### 14.4 UI: `src/references/store.js`
+```js
+export function listGroups()                    // groupCandidates({ uploads, gallery, order: settings.referenceOrder })
+export function listCandidates()                // toCandidates with the same three inputs
+export function listNames()                     // allNames(listGroups())
+export function moveReference(url, direction)   // -1 | 1
+```
+`moveReference`: find the group that holds `url`, take the urls of its items in the order shown, apply
+`moveInList`, store that full list under the group's key in `settings.referenceOrder` (other keys untouched),
+then notify the listeners. Nothing happens when the url is unknown or the list did not change.
+
+### 14.5 UI: `src/references/view.js`, `style.css`
+Upload form, top to bottom:
+
+| Element | Id or class |
+|---|---|
+| name picker: `<details>` with a `<summary>` and one `<label class="checkbox_label">` per known name | `bfqig-ref-names-select`, summary `bfqig-ref-names-summary`, checkboxes class `bfqig-ref-name-option` (`value` = the name) |
+| text input for a new name | `bfqig-ref-names` (as before) |
+| pick label, hidden file input, file name, upload button | as in section 12 |
+
+- The picker lists `listNames()`. Its summary reads `Figuren auswählen` while nothing is ticked, else the ticked
+  names joined with `, `. With no known names the picker is hidden.
+- The upload sends the ticked names followed by the names typed in the text input (commas separate several),
+  through `addUpload(file, <array>)`. After a successful upload the ticks, the text and the file are cleared.
+  A re-render must not lose ticks, typed text or the chosen file: the form is built once and only the option
+  list is refreshed (ticks of names that still exist are kept).
+- The list shows one block per group of `listGroups()`: `<section class="bfqig-ref-group" data-key="<key>">`
+  with a heading (class `bfqig-ref-group-title`): the names joined with ` + `, then ` (<number of pictures>)`.
+  The headings `Hochgeladen` and `Erzeugt` are gone.
+- A row (`.bfqig-ref-item`, `data-url`) holds, in this order: thumbnail button, names input, checkbox, button
+  up (class `bfqig-ref-up`, icon `fa-solid fa-arrow-up`, title `Nach oben`), button down (class
+  `bfqig-ref-down`, icon `fa-solid fa-arrow-down`, title `Nach unten`), delete button. Up is disabled on the
+  first row of a group, down on the last. They call `moveReference(url, -1 | 1)`.
+- A generated picture carries a small label `erzeugt` (class `bfqig-ref-badge`) next to its names input.
+- On a narrow list (container query, 480 px) the row wraps: thumbnail and names input on the first line, the
+  four controls on the second, the badge at the end of the second line.
+- The upload form lives in `src/references/upload-form.js` (`createUploadForm()` -> `{ element, setNames(names) }`),
+  built once; the picker's summary shows a caret so it reads as a dropdown.
+- Viewer, delete, names editing, checkbox and filter behave as in section 12; the filter hides rows and whole
+  groups without a visible row. Changing the names of a picture moves it to the matching group on re-render.
+
+| Key / place | Text |
+|---|---|
+| hint (replaces 12.6) | `Referenzbilder zeigen dem Bildmodell, wie eine Figur aussieht. Bilder mit denselben Figuren bilden eine Gruppe. Die Reihenfolge in der Gruppe ist die Reihenfolge, in der sie verwendet werden: höchstens zwei Bilder pro Figur, nur angehakte. Jedes erzeugte Bild wird von selbst Referenz für die Figuren darauf.` |
+| picker summary, nothing ticked | `Figuren auswählen` |
+| new-name placeholder | `Neue Figur, z. B. Kyouko` |
+| error without any name (replaces the text of 12.5) | `Bitte eine Figur auswählen oder einen Namen eintragen.` |
+| badge | `erzeugt` |
+| move buttons | `Nach oben`, `Nach unten` |
+
+### 14.6 Tests and version
+- `tests/references/select.test.js`: `groupKey` (case, order, empty); `groupCandidates` (grouping of uploads and
+  generated pictures with the same people, default order, a stored order, a new picture after a stored order
+  goes to the end, stale urls ignored, group sorting); `toCandidates` with `order`; `allNames`; `moveInList`
+  (both directions, both ends, missing value); `selectReferences`: all examples of section 12.7 still hold, and a
+  generated picture moved in front of an upload by a stored order is chosen first.
+- `tests/settings/defaults.test.js`: `referenceOrder` normalisation.
+- No existing test is deleted; assertions on the removed tie-break are updated. The count does not drop (229
+  before). Version `1.4.0`.
+- Live test (orchestrator): SillyTavern test instance: tick an existing name and upload a second picture, upload
+  a group picture with two ticked names, move a picture and check the request order.

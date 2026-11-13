@@ -1,4 +1,5 @@
-// Reference pictures: who is on which picture and which pictures go with a scene (spec 12.2). PURE.
+// Reference pictures: who is on which picture, how they group, and which pictures go with a scene
+// (spec 12.2, 14.2). PURE.
 
 export const PER_NAME_LIMIT = 2;
 export const NAME_LIMIT = 8;
@@ -52,7 +53,13 @@ function hasUrl(entry) {
     return entry !== null && typeof entry === 'object' && typeof entry.url === 'string' && entry.url !== '';
 }
 
-export function toCandidates({ uploads, gallery } = {}) {
+export function groupKey(names) {
+    return normalizeNames(names).map(key).sort((a, b) => a.localeCompare(b)).join('|');
+}
+
+// Default order (spec 14.1): uploads in list order (the first picture of a person is the anchor), then gallery
+// records in list order, which is newest first.
+function defaultCandidates(uploads, gallery) {
     const fromUploads = (Array.isArray(uploads) ? uploads : [])
         .filter(hasUrl)
         .map((entry) => toCandidate(entry, 'upload'));
@@ -60,7 +67,59 @@ export function toCandidates({ uploads, gallery } = {}) {
     const fromGallery = (Array.isArray(gallery) ? gallery : [])
         .filter((entry) => hasUrl(entry) && Array.isArray(entry.names) && entry.names.length > 0)
         .map((entry) => toCandidate(entry, 'generated'));
-    return [...fromUploads, ...fromGallery];
+    return [...fromUploads, ...fromGallery].filter((item) => item.names.length > 0);
+}
+
+// Own properties only: a group key such as "constructor" must not find Object.prototype members.
+function storedUrls(order, groupId) {
+    if (order === null || typeof order !== 'object' || Array.isArray(order) || !Object.hasOwn(order, groupId)) return [];
+    const list = order[groupId];
+    return Array.isArray(list) ? list : [];
+}
+
+// Pictures the owner placed keep that place; pictures added later follow in default order, so a pinned
+// picture stays on top.
+function applyOrder(items, urls) {
+    if (urls.length === 0) return items;
+    const byUrl = new Map();
+    for (const item of items) if (!byUrl.has(item.url)) byUrl.set(item.url, item);
+    const front = [];
+    for (const url of urls) {
+        const item = byUrl.get(url);
+        if (item && !front.includes(item)) front.push(item);
+    }
+    return [...front, ...items.filter((item) => !front.includes(item))];
+}
+
+export function groupCandidates({ uploads, gallery, order } = {}) {
+    const groups = new Map();
+    for (const item of defaultCandidates(uploads, gallery)) {
+        const id = groupKey(item.names);
+        if (!groups.has(id)) groups.set(id, { key: id, names: [...item.names], items: [] });
+        groups.get(id).items.push(item);
+    }
+    return [...groups.values()]
+        .map((group) => ({ ...group, items: applyOrder(group.items, storedUrls(order, group.key)) }))
+        .sort((a, b) => a.names.length - b.names.length || a.key.localeCompare(b.key));
+}
+
+export function toCandidates({ uploads, gallery, order } = {}) {
+    return groupCandidates({ uploads, gallery, order }).flatMap((group) => group.items);
+}
+
+export function allNames(groups) {
+    const list = Array.isArray(groups) ? groups : [];
+    const names = list.flatMap((group) => (Array.isArray(group?.items) ? group.items : []).flatMap((item) => item?.names ?? []));
+    return uniqueNames(names).sort((a, b) => a.localeCompare(b));
+}
+
+export function moveInList(list, value, direction) {
+    const copy = Array.isArray(list) ? [...list] : [];
+    const from = copy.indexOf(value);
+    const to = from + direction;
+    if (from < 0 || (direction !== -1 && direction !== 1) || to < 0 || to >= copy.length) return copy;
+    [copy[from], copy[to]] = [copy[to], copy[from]];
+    return copy;
 }
 
 export function knownNames(candidates) {
@@ -130,15 +189,10 @@ export function findNamesInText(text, known) {
     return found.sort((a, b) => a.at - b.at).map((item) => item.name);
 }
 
-// Upload before generated, then fewer names, then list order.
-function compareSingles(a, b) {
-    if (a.source !== b.source) return a.source === 'upload' ? -1 : 1;
-    return compareRest(a, b);
-}
-
-// List order already says what the owner wants: uploads oldest first (the first picture of a person is the
-// anchor), generated pictures newest first. A timestamp would put the latest upload in front instead.
-function compareRest(a, b) {
+// Candidate order already says what the owner wants (spec 14.1): the default group order puts uploads first,
+// and a manual order may put a generated picture in front, so the source is no tie-break of its own. A
+// timestamp would put the latest upload in front instead.
+function compareCandidates(a, b) {
     if (a.names.length !== b.names.length) return a.names.length - b.names.length;
     return a.index - b.index;
 }
@@ -173,8 +227,7 @@ export function selectReferences({ candidates, sceneNames, maxImages, perNameLim
             .map((item) => ({ item, missing: item.keys.filter((name) => counts.get(name) === 0).length }));
         const top = Math.max(0, ...scored.map((entry) => entry.missing));
         if (top === 0) break;
-        const compare = top === 1 ? compareSingles : compareRest;
-        take(pickBest(scored.filter((entry) => entry.missing === top).map((entry) => entry.item), compare));
+        take(pickBest(scored.filter((entry) => entry.missing === top).map((entry) => entry.item), compareCandidates));
     }
 
     // Fill: a second picture per person, in turns, so nobody gets two before everyone had the chance.
@@ -184,7 +237,7 @@ export function selectReferences({ candidates, sceneNames, maxImages, perNameLim
         for (const name of scene.map(key)) {
             if (chosen.length >= max) break;
             if (counts.get(name) >= perNameLimit) continue;
-            const best = pickBest(eligible.filter((item) => allowed(item) && item.keys.includes(name)), compareSingles);
+            const best = pickBest(eligible.filter((item) => allowed(item) && item.keys.includes(name)), compareCandidates);
             if (best) {
                 take(best);
                 added = true;

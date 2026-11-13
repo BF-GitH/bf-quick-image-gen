@@ -2,7 +2,7 @@
 // records and only get names and a checkbox there.
 
 import { LOG_PREFIX } from '../shared/constants.js';
-import { normalizeNames, toCandidates, REFERENCE_LIMIT } from './select.js';
+import { normalizeNames, groupCandidates, toCandidates, allNames, moveInList, REFERENCE_LIMIT } from './select.js';
 import { getSettings, updateSettings } from '../settings/store.js';
 import { listRecords, updateGalleryRecord, onGalleryChange } from '../gallery/store.js';
 import { timestampName } from '../host/st.js';
@@ -11,7 +11,7 @@ import { uploadImage, deleteImage, toJpegDataUrl } from '../host/images.js';
 export const REFERENCE_FOLDER = 'bfqig-references';
 
 const TEXT = Object.freeze({
-    noName: 'Bitte zuerst einen Namen eintragen.',
+    noName: 'Bitte eine Figur auswählen oder einen Namen eintragen.',
     noFile: 'Bitte zuerst ein Bild auswählen.',
     full: 'Es sind höchstens 100 Referenzbilder möglich.',
 });
@@ -46,8 +46,32 @@ export function listUploads() {
     return [...uploads()];
 }
 
+function sources() {
+    return { uploads: uploads(), gallery: listRecords(), order: getSettings().referenceOrder };
+}
+
+export function listGroups() {
+    return groupCandidates(sources());
+}
+
 export function listCandidates() {
-    return toCandidates({ uploads: uploads(), gallery: listRecords() });
+    return toCandidates(sources());
+}
+
+export function listNames() {
+    return allNames(listGroups());
+}
+
+// The full shown order is stored, not just the moved pair: once the owner sorts a group, every picture in it
+// keeps its place and later pictures go to the end (spec 14.1).
+export function moveReference(url, direction) {
+    const group = listGroups().find((entry) => entry.items.some((item) => item.url === url));
+    if (!group) return;
+    const current = group.items.map((item) => item.url);
+    const moved = moveInList(current, url, direction);
+    if (moved.every((value, i) => value === current[i])) return;
+    updateSettings({ referenceOrder: { ...getSettings().referenceOrder, [group.key]: moved } });
+    emit();
 }
 
 export async function addUpload(file, names) {

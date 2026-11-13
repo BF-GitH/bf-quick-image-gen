@@ -55,11 +55,14 @@ A reference picture does.
 1. Pick a model that accepts reference pictures. The note under the model list says how many it takes. Tested on
    NanoGPT: `seedream-v4.5`, `seedream-v5.0-lite`, `qwen-image-3`, `gpt-image-2`, `hidream-o1-image-dev`. The
    anime SDXL models only copy the framing of a reference.
-2. Tab "Referenzen": choose a picture, type the character's name, "Bild hochladen". For a picture with several
-   characters separate the names with commas. Two pictures per character work best: the face, and the whole
-   figure in the outfit you want.
+2. Tab "Referenzen": type a new character's name, or tick characters you already have under "Figuren
+   auswählen" (several for a picture that shows several), choose a picture, "Bild hochladen". Two pictures per
+   character work best: the face, and the whole figure in the outfit you want.
 3. From then on the chat model says who is in each picture, and the matching reference pictures go along.
 
+- Pictures of the same characters form a group ("Kyouko", "Yuki", "Kyouko + Yuki"). The order inside a group
+  is the order of use; the arrows move a picture. Until you sort a group, uploads come first and then the
+  newest generated picture; once you sort it, your order stays and new pictures go to the end.
 - Only checked pictures are used, at most two per character and never more than the model takes.
 - A picture that shows several characters of the scene goes first, so four characters fit into three pictures.
   A picture with someone who is not in the scene stays out.

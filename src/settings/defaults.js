@@ -23,7 +23,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
     parallelImage: false,
     gallery: Object.freeze([]),
     references: Object.freeze([]),
+    referenceOrder: Object.freeze({}),
 });
+
+const ORDER_LIMIT = 300;
 
 function isObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -92,6 +95,15 @@ function normalizeReferences(value) {
     })).slice(0, REFERENCE_LIMIT);
 }
 
+// fromEntries instead of assignment: a stored key "__proto__" must stay a plain key.
+function normalizeReferenceOrder(value) {
+    if (!isObject(value)) return {};
+    return Object.fromEntries(Object.entries(value)
+        .filter(([, list]) => Array.isArray(list))
+        .map(([groupId, list]) => [groupId, uniqueStrings(list).slice(0, ORDER_LIMIT)])
+        .filter(([, list]) => list.length > 0));
+}
+
 export function normalizeSettings(saved) {
     const src = isObject(saved) ? saved : {};
     return {
@@ -109,6 +121,7 @@ export function normalizeSettings(saved) {
         parallelImage: toBool(src.parallelImage, DEFAULT_SETTINGS.parallelImage),
         gallery: normalizeGallery(src.gallery),
         references: normalizeReferences(src.references),
+        referenceOrder: normalizeReferenceOrder(src.referenceOrder),
     };
 }
 

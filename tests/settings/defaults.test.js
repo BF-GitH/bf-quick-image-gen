@@ -10,7 +10,7 @@ const EXPECTED_DEFAULTS = {
     provider: 'nanogpt', keys: { nanogpt: '', openrouter: '' }, models: { ...DEFAULT_MODELS },
     favorites: { nanogpt: [], openrouter: [] }, instruction: DEFAULT_INSTRUCTION, aspect: '1:1', quality: 'standard',
     contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
-    references: [],
+    references: [], referenceOrder: {},
 };
 
 test('DEFAULT_SETTINGS matches the template and is frozen', () => {
@@ -45,6 +45,7 @@ test('normalizeSettings keeps valid values', () => {
         contextMessages: 12, styleSuffix: 'anime', useLlm: false, autoSaveDialog: true, parallelImage: true,
         gallery: [{ url: 'user/images/a.png', prompt: 'p' }],
         references: [{ url: 'user/images/bfqig-references/r.jpg', names: ['Kyouko'], enabled: false, timestamp: 5 }],
+        referenceOrder: { kyouko: ['user/images/bfqig-references/r.jpg'] },
     };
     const result = normalizeSettings(saved);
     assert.deepEqual(result, saved);
@@ -130,6 +131,28 @@ test('normalizeSettings validates references: url, names, enabled, timestamp, li
     const many = Array.from({ length: REFERENCE_LIMIT + 5 }, (_, i) => ({ url: `r${i}`, names: 'A' }));
     assert.equal(normalizeSettings({ references: many }).references.length, REFERENCE_LIMIT);
     assert.ok(Object.isFrozen(DEFAULT_SETTINGS.references));
+});
+
+test('normalizeSettings validates referenceOrder: arrays of unique non-empty strings, capped, else dropped', () => {
+    const result = normalizeSettings({
+        referenceOrder: {
+            'kyouko': ['b.jpg', 'a.jpg', 'b.jpg', '', 5, null, 'c.jpg'],
+            'kyouko|yuki': [],
+            'tooru': 'a.jpg',
+            'yuki': [1, ''],
+            'miyamura': { 0: 'x' },
+        },
+    });
+    assert.deepEqual(result.referenceOrder, { kyouko: ['b.jpg', 'a.jpg', 'c.jpg'] });
+    const many = Array.from({ length: 310 }, (_, i) => `u${i}`);
+    assert.equal(normalizeSettings({ referenceOrder: { a: many } }).referenceOrder.a.length, 300);
+    for (const garbage of [undefined, null, 'x', 7, ['a'], true]) {
+        assert.deepEqual(normalizeSettings({ referenceOrder: garbage }).referenceOrder, {}, String(garbage));
+    }
+    const proto = normalizeSettings({ referenceOrder: JSON.parse('{"__proto__": ["p.jpg"]}') }).referenceOrder;
+    assert.deepEqual(Object.keys(proto), ['__proto__']);
+    assert.equal(Object.getPrototypeOf(proto), Object.prototype);
+    assert.ok(Object.isFrozen(DEFAULT_SETTINGS.referenceOrder));
 });
 
 test('normalizeSettings normalises names and coerces enabled on gallery entries only when present', () => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     PER_NAME_LIMIT, NAME_LIMIT, REFERENCE_LIMIT, normalizeNames, toCandidates, knownNames, matchName,
     resolveShownNames, findNamesInText, selectReferences, buildReferencePreamble,
+    groupKey, groupCandidates, allNames, moveInList,
 } from '../../src/references/select.js';
 
 function upload(url, names, extra = {}) {
@@ -31,7 +32,7 @@ test('normalizeNames splits strings, trims, cuts, dedupes ignoring case and caps
     for (const garbage of [undefined, null, 7, {}, true]) assert.deepEqual(normalizeNames(garbage), []);
 });
 
-test('toCandidates: uploads first, then named gallery records; fields normalised', () => {
+test('toCandidates: named uploads and gallery records in group order; fields normalised', () => {
     const uploads = [
         { url: 'u1', names: ['Kyouko'], enabled: true, timestamp: 5 },
         { url: 'u2', names: 'Yuki, Tooru', enabled: false },
@@ -45,12 +46,12 @@ test('toCandidates: uploads first, then named gallery records; fields normalised
         { url: 'g4', names: 'Kyouko' },
         { url: 'g5', names: ['Tooru'], enabled: false, timestamp: 'x' },
     ];
+    // Spec 14.2: pictures without a name (u3) are left out; groups by number of names, then key.
     assert.deepEqual(toCandidates({ uploads, gallery }), [
         { url: 'u1', names: ['Kyouko'], enabled: true, source: 'upload', timestamp: 5 },
-        { url: 'u2', names: ['Yuki', 'Tooru'], enabled: false, source: 'upload', timestamp: 0 },
-        { url: 'u3', names: [], enabled: true, source: 'upload', timestamp: 0 },
-        { url: 'g1', names: ['Kyouko', 'Yuki'], enabled: true, source: 'generated', timestamp: 9 },
         { url: 'g5', names: ['Tooru'], enabled: false, source: 'generated', timestamp: 0 },
+        { url: 'g1', names: ['Kyouko', 'Yuki'], enabled: true, source: 'generated', timestamp: 9 },
+        { url: 'u2', names: ['Yuki', 'Tooru'], enabled: false, source: 'upload', timestamp: 0 },
     ]);
     assert.deepEqual(toCandidates({}), []);
     assert.deepEqual(toCandidates({ uploads: 'x', gallery: null }), []);
@@ -154,8 +155,8 @@ test('selectReferences never takes outsiders, disabled pictures, or anything for
     assert.deepEqual(selectReferences({ candidates, sceneNames: ['A'], maxImages: undefined }), []);
 });
 
-test('selectReferences tie-breaks: upload before generated, fewer names, list order', () => {
-    // List order as toCandidates builds it: uploads oldest first, generated pictures newest first.
+test('selectReferences tie-breaks: fewer names, then list order', () => {
+    // Default list order as toCandidates builds it: uploads oldest first, generated pictures newest first.
     const single = [upload('first', ['A'], { timestamp: 1 }), upload('second', ['A'], { timestamp: 2 }), generated('gen', ['A'], { timestamp: 50 })];
     assert.deepEqual(urls(selectReferences({ candidates: single, sceneNames: ['A'], maxImages: 1 })), ['first']);
     assert.deepEqual(urls(selectReferences({ candidates: single, sceneNames: ['A'], maxImages: 2 })), ['first', 'second']);
@@ -164,6 +165,132 @@ test('selectReferences tie-breaks: upload before generated, fewer names, list or
     const sameCover = [upload('ab', ['A', 'B']), upload('a', ['A'])];
     assert.deepEqual(urls(selectReferences({ candidates: sameCover, sceneNames: ['A', 'B'], maxImages: 5 })), ['ab', 'a']);
     assert.deepEqual(urls(selectReferences({ candidates: single, sceneNames: ['a', 'A'], maxImages: 5, perNameLimit: 1 })), ['first']);
+    // The source is no tie-break of its own any more (spec 14.2): list order decides.
+    const genFirst = [generated('gen', ['A']), upload('up', ['A'])];
+    assert.deepEqual(urls(selectReferences({ candidates: genFirst, sceneNames: ['A'], maxImages: 1 })), ['gen']);
+});
+
+test('groupKey: names normalised, case and order ignored, empty for no names', () => {
+    assert.equal(groupKey(['Yuki', 'Kyouko']), 'kyouko|yuki');
+    assert.equal(groupKey(' kyouko , YUKI, Kyouko'), 'kyouko|yuki');
+    assert.equal(groupKey(['Kyouko']), 'kyouko');
+    assert.equal(groupKey([]), '');
+    assert.equal(groupKey(undefined), '');
+    assert.equal(groupKey(' , '), '');
+});
+
+const LIBRARY = {
+    uploads: [
+        { url: 'u-kyouko-1', names: ['Kyouko'] },
+        { url: 'u-pair', names: ['Yuki', 'Kyouko'] },
+        { url: 'u-kyouko-2', names: ['kyouko'] },
+        { url: 'u-nameless', names: [] },
+        { url: 'u-tooru', names: ['Tooru'], enabled: false },
+    ],
+    gallery: [
+        { url: 'g-kyouko-new', names: ['Kyouko'], timestamp: 9 },
+        { url: 'g-pair', names: ['kyouko', 'yuki'], timestamp: 8 },
+        { url: 'g-plain', prompt: 'no names' },
+        { url: 'g-kyouko-old', names: ['KYOUKO'], timestamp: 7 },
+    ],
+};
+
+const groupUrls = (groups) => groups.map((group) => [group.key, group.items.map((item) => item.url)]);
+
+test('groupCandidates: uploads and generated pictures of the same people share a group, default order, sorting', () => {
+    const groups = groupCandidates(LIBRARY);
+    assert.deepEqual(groupUrls(groups), [
+        ['kyouko', ['u-kyouko-1', 'u-kyouko-2', 'g-kyouko-new', 'g-kyouko-old']],
+        ['tooru', ['u-tooru']],
+        ['kyouko|yuki', ['u-pair', 'g-pair']],
+    ]);
+    assert.deepEqual(groups[0].names, ['Kyouko']);
+    assert.deepEqual(groups[2].names, ['Yuki', 'Kyouko']);
+    assert.deepEqual(groups[1].items[0], { url: 'u-tooru', names: ['Tooru'], enabled: false, source: 'upload', timestamp: 0 });
+    assert.equal(groups[0].items[2].source, 'generated');
+    assert.deepEqual(groupCandidates({}), []);
+    assert.deepEqual(groupCandidates(), []);
+});
+
+test('groupCandidates: a stored order wins, new pictures go to the end, stale urls and garbage are ignored', () => {
+    const order = { kyouko: ['g-kyouko-old', 'gone.jpg', 'u-kyouko-2', 'g-kyouko-old', 7] };
+    assert.deepEqual(groupUrls(groupCandidates({ ...LIBRARY, order }))[0],
+        ['kyouko', ['g-kyouko-old', 'u-kyouko-2', 'u-kyouko-1', 'g-kyouko-new']]);
+    // A full stored order, then a newer generated picture arrives: it goes to the end, the pinned one stays on top.
+    const full = { kyouko: ['g-kyouko-old', 'u-kyouko-1', 'u-kyouko-2', 'g-kyouko-new'] };
+    const later = { ...LIBRARY, gallery: [{ url: 'g-kyouko-newest', names: ['Kyouko'], timestamp: 10 }, ...LIBRARY.gallery], order: full };
+    assert.deepEqual(groupUrls(groupCandidates(later))[0],
+        ['kyouko', ['g-kyouko-old', 'u-kyouko-1', 'u-kyouko-2', 'g-kyouko-new', 'g-kyouko-newest']]);
+    const unsorted = groupUrls(groupCandidates(LIBRARY));
+    for (const garbage of [null, 'x', ['kyouko'], { kyouko: [] }, { kyouko: 'g-kyouko-old' }, { kyouko: null }, { other: ['g-kyouko-old'] }]) {
+        assert.deepEqual(groupUrls(groupCandidates({ ...LIBRARY, order: garbage })), unsorted, JSON.stringify(garbage));
+    }
+});
+
+test('toCandidates with order: flattened group order', () => {
+    const order = { 'kyouko|yuki': ['g-pair'] };
+    assert.deepEqual(toCandidates({ ...LIBRARY, order }).map((item) => item.url), [
+        'u-kyouko-1', 'u-kyouko-2', 'g-kyouko-new', 'g-kyouko-old', 'u-tooru', 'g-pair', 'u-pair',
+    ]);
+});
+
+test('allNames: every name, enabled or not, unique ignoring case (first spelling), sorted', () => {
+    assert.deepEqual(allNames(groupCandidates(LIBRARY)), ['Kyouko', 'Tooru', 'Yuki']);
+    const groups = [
+        { items: [{ names: ['zoe'] }, { names: ['Zoe'] }] },
+        { items: [{ names: ['Ümit', 'anna'] }] },
+    ];
+    assert.deepEqual(allNames(groups), ['anna', 'Ümit', 'zoe']);
+    assert.deepEqual(allNames(null), []);
+    assert.deepEqual(allNames([null, {}]), []);
+});
+
+test('moveInList: both directions, both ends, missing value; always a copy', () => {
+    const list = ['a', 'b', 'c'];
+    assert.deepEqual(moveInList(list, 'b', -1), ['b', 'a', 'c']);
+    assert.deepEqual(moveInList(list, 'b', 1), ['a', 'c', 'b']);
+    assert.deepEqual(moveInList(list, 'a', -1), ['a', 'b', 'c']);
+    assert.deepEqual(moveInList(list, 'c', 1), ['a', 'b', 'c']);
+    assert.deepEqual(moveInList(list, 'x', 1), ['a', 'b', 'c']);
+    assert.deepEqual(list, ['a', 'b', 'c']);
+    assert.notEqual(moveInList(list, 'x', 1), list);
+    assert.deepEqual(moveInList(null, 'a', 1), []);
+});
+
+test('selectReferences: the 12.7 examples still hold when the candidates come from toCandidates', () => {
+    const pair = toCandidates({
+        uploads: [{ url: 'kyouko', names: ['Kyouko'] }, { url: 'yuki', names: ['Yuki'] }],
+        gallery: [{ url: 'pair', names: ['Kyouko', 'Yuki'] }],
+    });
+    assert.deepEqual(urls(selectReferences({ candidates: pair, sceneNames: ['Kyouko', 'Yuki'], maxImages: 10 })), ['pair', 'kyouko', 'yuki']);
+    const four = toCandidates({
+        uploads: ['A', 'B', 'C', 'D'].map((name) => ({ url: name.toLowerCase(), names: [name] })),
+        gallery: [{ url: 'ab', names: ['A', 'B'] }],
+    });
+    assert.deepEqual(urls(selectReferences({ candidates: four, sceneNames: ['A', 'B', 'C', 'D'], maxImages: 3 })), ['ab', 'c', 'd']);
+    const horimiya = toCandidates({
+        uploads: [
+            { url: 'yuki+tooru', names: ['Yuki', 'Tooru'] }, { url: 'kyouko', names: ['Kyouko'] }, { url: 'yuki', names: ['Yuki'] },
+            { url: 'trio', names: ['Yuki', 'Tooru', 'Kyouko'] }, { url: 'miyamura', names: ['Miyamura'] }, { url: 'sengoku', names: ['Sengoku'] },
+        ],
+    });
+    const sceneNames = ['Kyouko', 'Yuki', 'Tooru', 'Miyamura', 'Sengoku'];
+    assert.deepEqual(urls(selectReferences({ candidates: horimiya, sceneNames, maxImages: 3 })), ['trio', 'miyamura', 'sengoku']);
+    assert.deepEqual(urls(selectReferences({ candidates: horimiya, sceneNames, maxImages: 10 })), ['trio', 'miyamura', 'sengoku', 'kyouko', 'yuki']);
+    const twoEach = toCandidates({
+        uploads: ['a1', 'a2', 'b1', 'b2', 'c1', 'c2'].map((url) => ({ url, names: [url[0].toUpperCase()] })),
+    });
+    assert.deepEqual(urls(selectReferences({ candidates: twoEach, sceneNames: ['A', 'B', 'C'], maxImages: 4 })), ['a1', 'b1', 'c1', 'a2']);
+});
+
+test('selectReferences: a generated picture moved in front of an upload by a stored order is chosen first', () => {
+    const uploads = [{ url: 'up', names: ['Kyouko'] }];
+    const gallery = [{ url: 'gen', names: ['Kyouko'] }];
+    const unsorted = toCandidates({ uploads, gallery });
+    assert.deepEqual(urls(selectReferences({ candidates: unsorted, sceneNames: ['Kyouko'], maxImages: 1 })), ['up']);
+    const sorted = toCandidates({ uploads, gallery, order: { kyouko: ['gen', 'up'] } });
+    assert.deepEqual(urls(selectReferences({ candidates: sorted, sceneNames: ['Kyouko'], maxImages: 1 })), ['gen']);
+    assert.deepEqual(urls(selectReferences({ candidates: sorted, sceneNames: ['Kyouko'], maxImages: 2 })), ['gen', 'up']);
 });
 
 test('buildReferencePreamble: exact text, name joining, empty list', () => {
