@@ -64,10 +64,12 @@ async function askChatModel({ instruction, sceneBlock, userName, known, settings
 }
 
 // A picture that cannot be loaded (deleted file, offline) must not cost the whole image.
-async function loadReferences(selected) {
+// `loaded` is shared by the models of one run, so a picture several of them use is converted once.
+async function loadReferences(selected, loaded) {
     const results = await Promise.all(selected.map(async ({ url, names }) => {
+        if (!loaded.has(url)) loaded.set(url, toJpegDataUrl(url));
         try {
-            return { url, names, dataUrl: await toJpegDataUrl(url) };
+            return { url, names, dataUrl: await loaded.get(url) };
         } catch (error) {
             console.warn(`${LOG_PREFIX} reference picture could not be loaded:`, url, error?.message ?? error);
             return null;
@@ -77,7 +79,8 @@ async function loadReferences(selected) {
     return { references, failedReferences: selected.length - references.length };
 }
 
-export async function buildImagePrompt({ lastIndex, settings, maxPromptChars, candidates = [], maxReferences = 0 }) {
+// Asks the chat model once per run; composeImagePrompt then fits the result to each model of the run.
+export async function describeScene({ lastIndex, settings, candidates = [] }) {
     const known = knownNames(candidates);
     const userName = getParticipantNames().user;
     // The user is drawn only when a checked picture shows them; otherwise the picture stays in their view.
@@ -105,8 +108,13 @@ export async function buildImagePrompt({ lastIndex, settings, maxPromptChars, ca
         : findNamesInText(context.recent.at(-1)?.text ?? '', known);
     if (!userShown && userName) shownNames = shownNames.filter((name) => matchName(name, [userName]) === null);
 
+    return { context, instruction, description, usedLlm, shownNames, llmProblem, loaded: new Map() };
+}
+
+export async function composeImagePrompt(scene, { settings, candidates = [], maxPromptChars, maxReferences = 0 }) {
+    const { context, instruction, description, usedLlm, shownNames, loaded } = scene;
     const selected = selectReferences({ candidates, sceneNames: shownNames, maxImages: maxReferences });
-    const { references, failedReferences } = await loadReferences(selected);
+    const { references, failedReferences } = await loadReferences(selected, loaded);
     const preamble = buildReferencePreamble(references);
 
     let text = description;
@@ -120,10 +128,7 @@ export async function buildImagePrompt({ lastIndex, settings, maxPromptChars, ca
 
     return {
         prompt: finalizePrompt(preamble + text, { styleSuffix: settings.styleSuffix, maxChars: maxPromptChars }),
-        usedLlm,
-        shownNames,
         references,
         failedReferences,
-        llmProblem,
     };
 }

@@ -12,6 +12,7 @@ const EXPECTED_DEFAULTS = {
     descriptionWords: 45, aspect: '1:1', quality: 'standard',
     contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
     references: [], referenceOrder: {},
+    batch: { nanogpt: [], openrouter: [] },
 };
 
 test('DEFAULT_SETTINGS matches the template and is frozen', () => {
@@ -47,6 +48,7 @@ test('normalizeSettings keeps valid values', () => {
         gallery: [{ url: 'user/images/a.png', prompt: 'p' }],
         references: [{ url: 'user/images/bfqig-references/r.jpg', names: ['Kyouko'], enabled: false, timestamp: 5 }],
         referenceOrder: { kyouko: ['user/images/bfqig-references/r.jpg'] },
+        batch: { nanogpt: [{ model: 'x', count: 2 }], openrouter: [] },
     };
     const result = normalizeSettings(saved);
     assert.deepEqual(result, saved);

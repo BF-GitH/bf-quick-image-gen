@@ -7,6 +7,7 @@ import { notify, onHostEvent } from '../host/st.js';
 import { getSettings, updateSettings } from './store.js';
 import { describeKeyState } from './keys.js';
 import { createModelPicker } from './model-picker.js';
+import { createBatchView } from './batch-view.js';
 import { getModelInfo } from './model-cache.js';
 import { createGalleryView, openImageViewer } from '../gallery/view.js';
 import { listRecords } from '../gallery/store.js';
@@ -48,6 +49,7 @@ const MARKUP = `
       <label class="bfqig-label" for="bfqig-model">Modell</label>
       <div class="bfqig-model-slot"></div>
       <div id="bfqig-model-ref-note" class="bfqig-note"></div>
+      <div class="bfqig-batch-slot"></div>
       <label class="bfqig-label" for="bfqig-instruction">Prompt</label>
       <textarea id="bfqig-instruction" class="text_pole" rows="6"></textarea>
       <div class="flex-container">
@@ -205,8 +207,15 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     const byId = (id) => root.querySelector(`#${id}`);
 
     const refNote = createReferenceNote(root);
-    const picker = createModelPicker({ onChange: () => refNote.refresh() });
+    const batch = createBatchView();
+    const picker = createModelPicker({
+        onChange: () => {
+            refNote.refresh();
+            batch.refresh();
+        },
+    });
     root.querySelector('.bfqig-model-slot').append(picker.element);
+    root.querySelector('.bfqig-batch-slot').append(batch.element);
     const gallery = createGalleryView();
     root.querySelector('.bfqig-gallery-slot').append(gallery.element);
     const references = createReferencesView();
@@ -214,7 +223,10 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     wireTabs(root, { gallery: () => gallery.refresh(), references: () => references.refresh() });
     const keyStatus = createKeyStatus(root);
     // The limit comes from the model list, so the note can only be right once that list has loaded.
-    const loadModels = (providerId) => picker.refresh(providerId).then(() => refNote.refresh());
+    const loadModels = (providerId) => picker.refresh(providerId).then(() => {
+        refNote.refresh();
+        batch.refresh();
+    });
 
     const provider = byId('bfqig-provider');
     const key = byId('bfqig-key');
@@ -251,6 +263,7 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
         key.value = getSettings().keys[provider.value] ?? '';
         keyStatus.refresh();
         refNote.refresh();
+        batch.refresh();
         loadModels(provider.value);
     });
     key.addEventListener('input', () => {

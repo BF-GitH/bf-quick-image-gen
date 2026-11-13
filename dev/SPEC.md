@@ -1544,3 +1544,151 @@ SillyTavern test instance, chat model `deepseek-chat`, image model `hidream-o1-i
 time: the prompt button appears while the picture is generated and shows the prompt that the image request
 carries; with the reply deleted, the picture button on the own message writes a new reply and attaches a
 picture, in hold mode and in parallel mode, and the chat holds no second copy of the own message.
+
+## 17. Several pictures per run, pictures below each other (version 1.7.0, **BINDING**)
+
+Owner's request, two parts:
+1. A setting that makes more than one picture per run: the same description, several models, each with its own
+   count ("2 of that model and 2 of that").
+2. In the chat only one picture of a message is visible. Every new picture, from such a run or from one more
+   press on the picture button, is to appear below the ones that are already there.
+
+Cause of part 2 (read in `src/host/chat.js` and in `script.js` of both hosts): `attachImageToMessage` stamps
+`extra.media_display = 'gallery'` on the message, and the hosts' gallery shows one picture with arrows. The
+hosts' other value, `'list'`, draws every picture of the message below the previous one.
+
+### 17.1 HOST: `src/host/chat.js`
+`attachImageToMessage` sets `extra.media_display = 'list'` on every call, also on a message that carries
+`'gallery'` from an earlier version. Nothing else changes there. Messages that get no new picture are not
+touched (no migration of old chats).
+
+### 17.2 PURE: `src/settings/defaults.js`
+```js
+export const BATCH_LIMITS = Object.freeze({ perModel: 4, total: 8 });
+export function normalizeBatch(value)                    // -> [{ model, count }]
+export function addToBatch(list, modelId)                // -> new list
+export function setBatchCount(list, modelId, count)      // -> new list
+export function removeFromBatch(list, modelId)           // -> new list
+export function batchTotal(list)                         // -> number of pictures
+export function expandImageJobs(list, fallbackModel)     // -> ['model-a', 'model-a', 'model-b']
+```
+- `normalizeBatch`: not an array -> `[]`. An entry needs a non-empty string `model` (trimmed). `count` becomes
+  an integer clamped to 1..`perModel`; anything that is no finite number -> 1. A model listed twice keeps its
+  first entry. Entries stay in order while the running total fits into `total`: an entry that would go beyond
+  is cut down to what is left, entries with nothing left are dropped.
+- `addToBatch`: a listed model gets `count + 1`, a new one is appended with `count: 1`; the result is
+  normalised (a full list or a model already at `perModel` comes back unchanged in content).
+- `setBatchCount`: sets the count of a listed model, result normalised. `removeFromBatch`: drops the model.
+- `expandImageJobs`: the normalised list is empty -> `[fallbackModel]`. Otherwise the model ids, each repeated
+  `count` times, in list order.
+- `DEFAULT_SETTINGS.batch = { nanogpt: [], openrouter: [] }` (frozen like `favorites`);
+  `normalizeSettings`: `batch: perProvider(src.batch, (value) => normalizeBatch(value))`.
+
+### 17.3 UI: new file `src/settings/batch-view.js`, slot in `src/settings/panel.js`
+```js
+export function createBatchView()     // -> { element, refresh() }
+```
+`panel.js`: `<div class="bfqig-batch-slot"></div>` directly after `#bfqig-model-ref-note`; the view is mounted
+there. `refresh()` is called after the model list has loaded, when the provider changes and when the model
+picker reports a change. No other change in `panel.js`.
+
+The view reads and writes `settings.batch[settings.provider]` through `getSettings` / `updateSettings` and
+shows model names from `getModels(providerId)` (id as fallback, also while the list is loading or failed).
+
+| Element | Id / class | Notes |
+|---|---|---|
+| label | class `bfqig-label` | text `Mehrere Bilder` |
+| list | `#bfqig-batch-list` | one row per entry, in list order |
+| row | `.bfqig-batch-row`, `data-model="<id>"` | |
+| model name | `.bfqig-batch-name` | |
+| count | `input.bfqig-batch-count.text_pole` | `type="number" min="1" max="4" step="1" inputmode="numeric"`, `aria-label="Anzahl"`; writes on `change` via `setBatchCount` and shows the stored value |
+| remove | `button.bfqig-batch-remove.menu_button.bfqig-icon-button` | icon `fa-solid fa-xmark`, `title` and `aria-label` `Aus der Liste nehmen` |
+| add | `#bfqig-batch-add`, class `menu_button` | text `Gewähltes Modell hinzufügen`; adds `settings.models[providerId]` via `addToBatch`; disabled when no model is chosen, the total is 8 or that model stands at 4 |
+| note | `#bfqig-batch-note`, class `bfqig-note` | texts below |
+
+| State | Note text |
+|---|---|
+| list empty | `Leer = ein Bild mit dem oben gewählten Modell.` |
+| one picture | `1 Bild pro Durchgang. Es zählt nur diese Liste.` |
+| n pictures | `<n> Bilder pro Durchgang, alle aus derselben Beschreibung. Es zählt nur diese Liste. Jedes Bild kostet einzeln.` |
+
+"Testbild generieren" stays one picture with the chosen model.
+
+### 17.4 PURE: `src/prompt/scene.js`
+```js
+export function promptPreviewText(entries)    // entries: [{ model, prompt }] in job order -> string
+```
+All entries carry the same prompt -> that prompt. Otherwise one block per distinct prompt, in the order of
+first appearance: a line with the distinct model ids that get it, joined by `, ` and ended with `:`, then the
+prompt; blocks are separated by one empty line. No entries -> `''`.
+
+### 17.5 WIRING: `src/prompt/build.js`
+`buildImagePrompt` is replaced by two steps, so the chat model is asked once per run and not once per model:
+```js
+export async function describeScene({ lastIndex, settings, candidates = [] })
+// -> { context, instruction, description, usedLlm, shownNames, llmProblem, loaded }
+export async function composeImagePrompt(scene, { settings, candidates = [], maxPromptChars, maxReferences = 0 })
+// -> { prompt, references, failedReferences }
+```
+- `describeScene` does everything of today's `buildImagePrompt` up to and including `shownNames`. `loaded` is
+  a `Map` from picture url to the promise of its JPEG data URL, empty at first.
+- `composeImagePrompt` does the rest for one model: `selectReferences`, loading (through `scene.loaded`, so a
+  picture that several models use is converted once), preamble, the direct text when `usedLlm` is false,
+  `finalizePrompt`. For one model the result is exactly what `buildImagePrompt` returns today.
+- No caller of `buildImagePrompt` is left; the function is removed.
+
+### 17.6 WIRING: `src/flow/generate-image.js`
+`prepared` changes its shape (the two controllers pass it through untouched):
+```js
+prepared = { images: [{ url, prompt, extension, model, ts }], providerId, folder, names }
+```
+`prepareImage(lastIndex, { signal, onPrompt })`:
+1. Target as today; the models of the run are
+   `expandImageJobs(settings.batch[provider.id], settings.models[provider.id] || provider.defaultModel)`.
+2. `getModelInfo` once per distinct model, `describeScene` once, then the abort check. The warning for
+   `llmProblem` is shown once.
+3. `composeImagePrompt` once per distinct model with that model's prompt limit and reference slots. One
+   warning when any of them reports failed reference pictures.
+4. `onPrompt(promptPreviewText(entries))`, once, as in 16.1.
+5. All pictures are requested at the same time (`Promise.allSettled` over `produceImage`). File names: one
+   picture `bfqig_<ts>` as today, several `bfqig_<ts>_<n>` with n from 1 in job order (`ts` of an image entry is
+   that suffix-bearing name part, so the save-dialog name stays unique too).
+6. After all settled: the signal is aborted -> every uploaded picture of the run is discarded and the abort is
+   thrown. No picture succeeded -> the first error is thrown unchanged. Some failed ->
+   `notify.warning('<failed> von <n> Bildern fehlgeschlagen: <first reason>')` and the run goes on with the
+   rest.
+7. `images` holds the successful pictures in job order.
+
+`attachPreparedImage`: as today everything up to the gallery records happens before the first `await`. The
+message check runs once; then every picture is attached with `attachImageToMessage` and recorded (model of
+that picture, same `names`), in order. Message gone, or attaching the first picture fails -> all pictures are
+discarded and the message-gone error is thrown. With `autoSaveDialog` the save dialogs come one after another
+(not awaited by the caller), never several at once.
+
+`discardPreparedImage` removes every uploaded picture of `prepared`. `generateImageForMessage` returns
+`{ url, prompt }` of the first picture. `generateTestImage` is unchanged.
+
+### 17.7 `style.css`, README, version
+- Rows of the batch list: name left (takes the room, wraps), count input narrow (about 4.5em), remove button
+  right, touch height like the other controls of the panel.
+- README: "Use" gets an item for "Mehrere Bilder" (list of models with counts, one description, every picture
+  is paid for on its own, all pictures of a run must arrive within four minutes) and the sentence that the
+  pictures of a message appear below each other.
+- Version `1.7.0` in `package.json`, `package-lock.json` (both places) and `manifest.json`.
+
+### 17.8 Tests
+- New `tests/settings/batch.test.js`: `normalizeBatch` (garbage, trimming, duplicates, per-model clamp, total
+  cut and drop), `addToBatch` (new, existing, model at 4, list at 8), `setBatchCount`, `removeFromBatch`,
+  `batchTotal`, `expandImageJobs` (empty -> fallback, order and repetition), `normalizeSettings` default and
+  per-provider normalisation of `batch`.
+- New `tests/prompt/prompt-preview.test.js`: `promptPreviewText` for one entry, equal prompts, two distinct
+  prompts with grouped model ids, no entries.
+- An existing test that compares the whole settings object or the list of exports may be extended by exactly
+  the new key; nothing else in existing tests changes and no test is deleted. The count does not drop (265
+  before). `npx eslint .` clean, no JS file above 400 lines, `tests/architecture.test.js` green without
+  changes to it.
+
+### 17.9 Live test (orchestrator, not the implementer)
+SillyTavern test instance: list `hidream-o1-image-dev` x1 and `z-image-turbo` x2. One run attaches three
+pictures to one reply, all visible below each other; the gallery holds three records with the right models;
+the prompt preview shows what each model gets; one more press on the picture button adds the next ones below.

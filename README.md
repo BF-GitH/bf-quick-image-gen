@@ -50,6 +50,12 @@ Disable or remove the original if you no longer want its palette button and sett
    picture that is going wrong can be cancelled early.
 9. Reply deleted and your own message is the last one in the chat: the picture button of that message writes the
    reply again and then the picture, in both modes. The message box must be empty for this.
+10. "Mehrere Bilder" under the model list makes several pictures per run: add models with a count each (up to 4
+    per model, 8 in total). All pictures come from the same description, every picture is paid for on its own,
+    and all pictures of a run must arrive within four minutes. An empty list means one picture with the chosen
+    model; "Testbild generieren" always makes one.
+11. The pictures of a message appear below each other; one more picture for the message goes below the ones
+    already there.
 
 ### Reference pictures
 

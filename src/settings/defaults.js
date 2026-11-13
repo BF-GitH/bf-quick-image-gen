@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     keys: Object.freeze({ nanogpt: '', openrouter: '' }),
     models: Object.freeze({ ...DEFAULT_MODELS }),
     favorites: Object.freeze({ nanogpt: Object.freeze([]), openrouter: Object.freeze([]) }),
+    batch: Object.freeze({ nanogpt: Object.freeze([]), openrouter: Object.freeze([]) }),
     instruction: DEFAULT_INSTRUCTION,
     description: DEFAULT_DESCRIPTION,
     descriptionWords: DESCRIPTION_WORDS.fallback,
@@ -123,6 +124,7 @@ export function normalizeSettings(saved) {
         keys: perProvider(src.keys, (value) => toStr(value)),
         models: perProvider(src.models, (value, id) => toStr(value).trim() || DEFAULT_MODELS[id]),
         favorites: perProvider(src.favorites, (value) => uniqueStrings(value)),
+        batch: perProvider(src.batch, (value) => normalizeBatch(value)),
         instruction: normalizeInstruction(src.instruction),
         description: normalizeDescription(src.description),
         descriptionWords: toDescriptionWords(src.descriptionWords),
@@ -143,4 +145,56 @@ export function toggleFavorite(list, modelId) {
     const current = uniqueStrings(list);
     if (typeof modelId !== 'string' || modelId === '') return current;
     return current.includes(modelId) ? current.filter((id) => id !== modelId) : [...current, modelId];
+}
+
+export const BATCH_LIMITS = Object.freeze({ perModel: 4, total: 8 });
+
+function toBatchCount(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 1;
+    return Math.min(BATCH_LIMITS.perModel, Math.max(1, Math.trunc(value)));
+}
+
+export function normalizeBatch(value) {
+    if (!Array.isArray(value)) return [];
+    const result = [];
+    const seen = new Set();
+    let left = BATCH_LIMITS.total;
+    for (const entry of value) {
+        const model = isObject(entry) && typeof entry.model === 'string' ? entry.model.trim() : '';
+        if (!model || seen.has(model)) continue;
+        seen.add(model);
+        if (left <= 0) continue;
+        const count = Math.min(toBatchCount(entry.count), left);
+        left -= count;
+        result.push({ model, count });
+    }
+    return result;
+}
+
+export function addToBatch(list, modelId) {
+    const current = normalizeBatch(list);
+    const model = typeof modelId === 'string' ? modelId.trim() : '';
+    if (!model) return current;
+    const listed = current.some((entry) => entry.model === model);
+    return normalizeBatch(listed
+        ? current.map((entry) => (entry.model === model ? { model, count: entry.count + 1 } : entry))
+        : [...current, { model, count: 1 }]);
+}
+
+export function setBatchCount(list, modelId, count) {
+    return normalizeBatch(normalizeBatch(list).map((entry) => (entry.model === modelId ? { model: entry.model, count } : entry)));
+}
+
+export function removeFromBatch(list, modelId) {
+    return normalizeBatch(list).filter((entry) => entry.model !== modelId);
+}
+
+export function batchTotal(list) {
+    return normalizeBatch(list).reduce((sum, entry) => sum + entry.count, 0);
+}
+
+export function expandImageJobs(list, fallbackModel) {
+    const entries = normalizeBatch(list);
+    if (entries.length === 0) return [fallbackModel];
+    return entries.flatMap(({ model, count }) => Array(count).fill(model));
 }

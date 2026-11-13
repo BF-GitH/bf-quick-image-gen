@@ -280,3 +280,16 @@ export function finalizePrompt(text, { styleSuffix = '', maxChars = 1800 } = {})
     if (!prefix) return body.trim();
     return body ? `${prefix}${body}` : toText(styleSuffix).trim();
 }
+
+// Several models of one run can get different prompts (prompt limit, reference slots); the preview shows each once.
+export function promptPreviewText(entries) {
+    if (!Array.isArray(entries) || entries.length === 0) return '';
+    const groups = new Map();
+    for (const { model, prompt } of entries) {
+        const models = groups.get(prompt) ?? [];
+        if (!models.includes(model)) models.push(model);
+        groups.set(prompt, models);
+    }
+    if (groups.size === 1) return entries[0].prompt;
+    return [...groups].map(([prompt, models]) => `${models.join(', ')}:\n${prompt}`).join('\n\n');
+}

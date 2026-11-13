@@ -115,6 +115,37 @@
     gap: 6px;
 }
 
+.bfqig-settings .bfqig-batch,
+.bfqig-settings #bfqig-batch-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bfqig-settings .bfqig-batch-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: var(--bfqig-touch);
+}
+
+.bfqig-settings .bfqig-batch-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.bfqig-settings .bfqig-batch-row input.bfqig-batch-count {
+    flex: 0 0 4.5em;
+    width: 4.5em;
+}
+
+/* The host's menu_button is as narrow as its longest word, which breaks this label into three lines. */
+.bfqig-settings #bfqig-batch-add {
+    align-self: flex-start;
+    width: auto;
+}
+
 .bfqig-settings .bfqig-note,
 .bfqig-viewer .bfqig-note {
     font-size: 0.9em;

@@ -4,9 +4,10 @@
 import { EXTENSION_ID, LOG_PREFIX } from '../shared/constants.js';
 import { getProvider } from '../providers/index.js';
 import { extensionForMime } from '../providers/http.js';
-import { finalizePrompt } from '../prompt/scene.js';
-import { buildImagePrompt } from '../prompt/build.js';
+import { finalizePrompt, promptPreviewText } from '../prompt/scene.js';
+import { composeImagePrompt, describeScene } from '../prompt/build.js';
 import { getSettings } from '../settings/store.js';
+import { expandImageJobs } from '../settings/defaults.js';
 import { resolveApiKey } from '../settings/keys.js';
 import { getModelInfo } from '../settings/model-cache.js';
 import { addGalleryRecord } from '../gallery/store.js';
@@ -19,6 +20,7 @@ const TEST_PROMPT = 'A cozy fantasy tavern interior at night, warm lantern light
 const REMOTE_ONLY_WARNING = 'Bild konnte nicht lokal gespeichert werden, es ist nur verlinkt.';
 const REFERENCES_FAILED_WARNING = 'Referenzbilder konnten nicht geladen werden, das Bild entsteht ohne sie.';
 const llmProblemWarning = (reason) => `Das Textmodell hat keinen Bildprompt geliefert (${reason}). Das Bild entsteht aus dem Rohtext der Nachricht.`;
+const partFailedWarning = (failed, total, reason) => `${failed} von ${total} Bildern fehlgeschlagen: ${reason}`;
 const MESSAGE_GONE = 'Die Nachricht ist nicht mehr vorhanden.';
 // Lets the failure toast tell "nothing left to retry" apart from a failure worth retrying.
 export const MESSAGE_GONE_CODE = 'MESSAGE_GONE';
@@ -114,57 +116,107 @@ function reportPrompt(onPrompt, prompt) {
     }
 }
 
+// Composes the prompt of every distinct model of the run; the chat model was asked once in describeScene.
+async function composePrompts(scene, { target, models, infos, candidates }) {
+    const results = await Promise.all(models.map((model) => composeImagePrompt(scene, {
+        settings: target.settings,
+        candidates,
+        maxPromptChars: promptLimit(infos.get(model)),
+        maxReferences: target.provider.maxReferenceImages(infos.get(model)),
+    })));
+    return new Map(models.map((model, i) => [model, results[i]]));
+}
+
+function discardImage(image) {
+    // Only an uploaded file is ours to remove; deleteImage never throws, so no await needed.
+    if (image?.extension) deleteImage(image.url);
+}
+
 export async function prepareImage(lastIndex, { signal, onPrompt } = {}) {
     throwIfAborted(signal);
     const target = await resolveTarget(signal);
-    const modelInfo = await getModelInfo(target.provider.id, target.model);
+    const providerId = target.provider.id;
+    const jobs = expandImageJobs(target.settings.batch[providerId], target.model);
+    const models = [...new Set(jobs)];
+    const infos = new Map();
+    for (const model of models) infos.set(model, await getModelInfo(providerId, model));
     throwIfAborted(signal);
-    const { prompt, shownNames, references, failedReferences, llmProblem } = await buildImagePrompt({
-        lastIndex,
-        settings: target.settings,
-        maxPromptChars: promptLimit(modelInfo),
-        candidates: listCandidates(),
-        maxReferences: target.provider.maxReferenceImages(modelInfo),
-    });
+    const candidates = listCandidates();
+    const scene = await describeScene({ lastIndex, settings: target.settings, candidates });
     throwIfAborted(signal);
-    reportPrompt(onPrompt, prompt);
-    if (llmProblem) notify.warning(llmProblemWarning(llmProblem));
-    if (failedReferences > 0) notify.warning(REFERENCES_FAILED_WARNING);
+    const composed = await composePrompts(scene, { target, models, infos, candidates });
+    throwIfAborted(signal);
+    reportPrompt(onPrompt, promptPreviewText(jobs.map((model) => ({ model, prompt: composed.get(model).prompt }))));
+    if (scene.llmProblem) notify.warning(llmProblemWarning(scene.llmProblem));
+    if ([...composed.values()].some((result) => result.failedReferences > 0)) notify.warning(REFERENCES_FAILED_WARNING);
 
     const folder = getImageFolderName();
     const ts = timestampName();
-    const { url, extension } = await produceImage({
-        target,
-        modelInfo,
-        prompt,
-        references: references.map((reference) => reference.dataUrl),
+    // Several pictures of one run need distinct file names, also in the save dialog.
+    const fileTs = jobs.length === 1 ? [ts] : jobs.map((_, i) => `${ts}_${i + 1}`);
+    const settled = await Promise.allSettled(jobs.map((model, i) => produceImage({
+        target: { ...target, model },
+        modelInfo: infos.get(model),
+        prompt: composed.get(model).prompt,
+        references: composed.get(model).references.map((reference) => reference.dataUrl),
         folder,
-        ts,
+        ts: fileTs[i],
         signal,
-    });
-    return { url, prompt, extension, providerId: target.provider.id, model: target.model, folder, ts, names: shownNames };
+    })));
+    const images = settled.flatMap((result, i) => (result.status === 'fulfilled'
+        ? [{ ...result.value, prompt: composed.get(jobs[i]).prompt, model: jobs[i], ts: fileTs[i] }]
+        : []));
+    if (signal?.aborted) {
+        images.forEach(discardImage);
+        throwIfAborted(signal);
+    }
+    const failed = settled.filter((result) => result.status === 'rejected');
+    if (images.length === 0) throw failed[0].reason;
+    if (failed.length > 0) {
+        const reason = failed[0].reason;
+        notify.warning(partFailedWarning(failed.length, jobs.length, reason?.message || String(reason)));
+    }
+    return { images, providerId, folder, names: scene.shownNames };
 }
 
 export function discardPreparedImage(prepared) {
-    // Only an uploaded file is ours to remove; deleteImage never throws, so no await needed.
-    if (prepared?.extension) deleteImage(prepared.url);
+    for (const image of prepared?.images ?? []) discardImage(image);
 }
 
-// Everything up to the gallery record runs before the first await: the parallel mode returns this promise from
+// The dialogs come one after another: several system dialogs at once would bury each other.
+async function openSaveDialogs(images) {
+    for (const { url, extension, ts } of images) {
+        if (!extension) continue;
+        try {
+            await saveToDevice(url, `tauri_${ts}.${extension}`);
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} save dialog failed:`, error?.message ?? error);
+        }
+    }
+}
+
+// Everything up to the gallery records runs before the first await: the parallel mode returns this promise from
 // its MESSAGE_RECEIVED listener, and the host renders and saves the reply right after the listener settles.
 export async function attachPreparedImage(messageIndex, prepared, { token, save = false } = {}) {
-    const { url, prompt, extension, providerId, model, folder, ts, names } = prepared;
-    if (!isSameMessage(messageIndex, token) || !attachImageToMessage(messageIndex, { url, title: prompt })) {
+    const { images, providerId, folder, names } = prepared;
+    if (!isSameMessage(messageIndex, token)) {
         discardPreparedImage(prepared);
         throw messageGoneError();
     }
-    record({ url, prompt, providerId, model, character: folder, names: Array.isArray(names) ? names : [] });
-    if (save) await saveChat();
-    if (getSettings().autoSaveDialog && extension) {
-        saveToDevice(url, `tauri_${ts}.${extension}`).catch((error) => {
-            console.warn(`${LOG_PREFIX} save dialog failed:`, error?.message ?? error);
-        });
+    const shown = Array.isArray(names) ? names : [];
+    for (const [i, image] of images.entries()) {
+        if (!attachImageToMessage(messageIndex, { url: image.url, title: image.prompt })) {
+            if (i === 0) {
+                discardPreparedImage(prepared);
+                throw messageGoneError();
+            }
+            discardImage(image);
+            continue;
+        }
+        record({ url: image.url, prompt: image.prompt, providerId, model: image.model, character: folder, names: shown });
     }
+    if (save) await saveChat();
+    if (getSettings().autoSaveDialog) openSaveDialogs(images);
 }
 
 export async function generateImageForMessage(messageIndex, { signal, saveBefore = false, saveAfterAttach = false, onPrompt } = {}) {
@@ -176,7 +228,8 @@ export async function generateImageForMessage(messageIndex, { signal, saveBefore
     }
     const prepared = await prepareImage(messageIndex, { signal, onPrompt });
     await attachPreparedImage(messageIndex, prepared, { token, save: saveAfterAttach });
-    return { url: prepared.url, prompt: prepared.prompt };
+    const [first] = prepared.images;
+    return { url: first.url, prompt: first.prompt };
 }
 
 export async function generateTestImage({ signal } = {}) {

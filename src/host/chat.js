@@ -96,9 +96,8 @@ export function attachImageToMessage(index, { url, title }) {
     if (!Array.isArray(extra.media)) {
         extra.media = [];
     }
-    if (extra.media.length === 0 && !extra.media_display) {
-        extra.media_display = 'gallery';
-    }
+    // 'list' draws every picture below the previous one; 'gallery' showed only one with arrows.
+    extra.media_display = 'list';
     extra.media.push({ url, type: 'image', title, source: 'generated' });
     extra.media_index = extra.media.length - 1;
     // false would hide the message text behind the image.
