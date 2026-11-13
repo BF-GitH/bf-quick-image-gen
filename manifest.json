@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "BF-GitH (fork of Quick Image Gen by platberlitz)",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "minimum_client_version": "1.14.0",
   "homePage": "https://github.com/BF-GitH/bf-quick-image-gen",
   "auto_update": true,

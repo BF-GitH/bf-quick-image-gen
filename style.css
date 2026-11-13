@@ -146,6 +146,11 @@
     width: auto;
 }
 
+.bfqig-settings #bfqig-gallery-probe {
+    width: fit-content;
+    white-space: nowrap;
+}
+
 .bfqig-settings .bfqig-note,
 .bfqig-viewer .bfqig-note {
     font-size: 0.9em;

@@ -1,7 +1,8 @@
 // NanoGPT dedicated image API (spec 5.10). PURE.
 import { DEFAULT_MODELS, SECRET_KEYS } from '../shared/constants.js';
 import {
-    ProviderError, buildChatBody, extractImage, normalizeTextModels, requestChatText, requestJson, truncatePrompt,
+    ProviderError, buildChatBody, extractImage, fetchImageAsBase64, normalizeTextModels, requestChatText, requestJson,
+    truncatePrompt,
 } from './http.js';
 import { selectNanoGptSize } from './sizing.js';
 
@@ -13,6 +14,7 @@ export const MODELS_URL = 'https://nano-gpt.com/api/v1/images/models';
 export const GENERATE_URL = 'https://nano-gpt.com/api/v1/images';
 export const TEXT_MODELS_URL = 'https://nano-gpt.com/api/v1/models?detailed=true';
 export const CHAT_URL = 'https://nano-gpt.com/api/v1/chat/completions';
+export const GALLERY_URL = 'https://nano-gpt.com/api/gallery/media';
 
 const DEFAULT_PROMPT_CHARS = 4000;
 const TIMEOUT_MS = 600000;
@@ -131,4 +133,53 @@ export function buildChatRequest({ model, systemPrompt, prompt, maxTokens }) {
 export async function generateText({ apiKey, model, systemPrompt, prompt, maxTokens, signal, fetchImpl }) {
     const { url, body } = buildChatRequest({ model, systemPrompt, prompt, maxTokens });
     return requestChatText(url, { apiKey, body, signal, fetchImpl, provider: label });
+}
+
+const GALLERY_TIMEOUT_MS = 30000;
+
+function isBlocked(error) {
+    return error instanceof ProviderError && (error.code === 'network' || error.code === 'timeout');
+}
+
+// Status 0 means no http answer was read.
+function knownStatus(error) {
+    return Number.isInteger(error?.status) && error.status > 0 ? error.status : null;
+}
+
+// Spec 22: only tells whether this device may read the gallery. Nothing of the answer leaves this function
+// besides the outcome fields, and the downloaded picture is dropped.
+export async function probeGallery({ apiKey, signal, fetchImpl } = {}) {
+    if (!apiKey) throw new ProviderError(`${label}: Kein API-Key`, { provider: label, code: 'no_key' });
+    const result = { list: null, status: null, reason: null, download: null, downloadStatus: null, downloadReason: null };
+    let json;
+    try {
+        json = await requestJson(`${GALLERY_URL}?limit=1`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal,
+            timeoutMs: GALLERY_TIMEOUT_MS,
+            fetchImpl,
+            provider: label,
+        });
+    } catch (error) {
+        if (!(error instanceof ProviderError)) throw error;
+        if (isBlocked(error)) return { ...result, list: 'blocked', reason: error.message };
+        return { ...result, list: 'refused', status: knownStatus(error), reason: error.message };
+    }
+    if (!Array.isArray(json?.items)) return { ...result, list: 'refused', reason: `${label}: Antwort enthält keine Galerie` };
+    const url = json.items[0]?.mediaGeneration?.images?.[0]?.url;
+    if (typeof url !== 'string' || !url) return { ...result, list: 'ok', download: 'none' };
+    try {
+        await fetchImageAsBase64(url, { signal, fetchImpl });
+    } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        if (isBlocked(error)) return { ...result, list: 'ok', download: 'blocked', downloadReason: error.message };
+        return {
+            ...result,
+            list: 'ok',
+            download: 'refused',
+            downloadStatus: knownStatus(error),
+            downloadReason: error?.message || String(error),
+        };
+    }
+    return { ...result, list: 'ok', download: 'ok' };
 }

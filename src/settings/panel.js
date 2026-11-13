@@ -9,6 +9,7 @@ import { describeKeyState } from './keys.js';
 import { createModelPicker } from './model-picker.js';
 import { createBatchView } from './batch-view.js';
 import { createTextModelView } from './text-model-view.js';
+import { createGalleryProbeView } from './gallery-probe-view.js';
 import { getModelInfo } from './model-cache.js';
 import { createGalleryView, openImageViewer } from '../gallery/view.js';
 import { listRecords } from '../gallery/store.js';
@@ -87,6 +88,7 @@ const MARKUP = `
           <span>Bildprompt von einem Textmodell schreiben lassen (empfohlen)</span>
         </label>
         <div class="bfqig-text-model-slot"></div>
+        <div class="bfqig-gallery-probe-slot"></div>
       </details>
       <button type="button" id="bfqig-test" class="menu_button bfqig-wide">Testbild generieren</button>
     </div>
@@ -220,6 +222,7 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     root.querySelector('.bfqig-batch-slot').append(batch.element);
     const textModel = createTextModelView();
     root.querySelector('.bfqig-text-model-slot').append(textModel.element);
+    root.querySelector('.bfqig-gallery-probe-slot').append(createGalleryProbeView().element);
     const gallery = createGalleryView();
     root.querySelector('.bfqig-gallery-slot').append(gallery.element);
     const references = createReferencesView();

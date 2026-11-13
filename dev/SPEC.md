@@ -2074,3 +2074,81 @@ Owner's request: 180 seconds per picture are too little, ten minutes instead.
   earlier.
 - A connection that is cut before the answer arrives ("Netzwerkfehler (Failed to fetch)") is not a time limit of
   the extension and is not changed by this.
+
+## 22. Test button: can this device read the NanoGPT gallery? (version 1.9.2, **BINDING**)
+
+Background: when the owner leaves the app while a picture is made, Android cuts the open request. NanoGPT
+finishes and bills the picture and keeps it in the account's web gallery, but the answer is lost. Measured on
+2026-11-13 from a script: the address the NanoGPT website uses for its gallery,
+`GET https://nano-gpt.com/api/gallery/media?limit=N`, accepts the API key as bearer and answers
+`{ items: [{ id, model, createdAt, mediaGeneration: { requestId, status, images: [{ url, ... }] } }] }` (no
+prompt). It is an internal, undocumented address, and neither its preflight nor its answer carries
+`Access-Control-Allow-Origin`, so a browser may not call it. Whether TauriTavern's Android view may is unknown.
+
+This section only answers that question on the owner's device. It fetches nothing for use: no picture is
+shown, stored or attached, and nothing of the answer is displayed except the outcome.
+
+### 22.1 PURE: `src/providers/nanogpt.js`
+```js
+export const GALLERY_URL = 'https://nano-gpt.com/api/gallery/media';
+export async function probeGallery({ apiKey, signal, fetchImpl } = {})
+// -> { list, status, reason, download, downloadStatus, downloadReason }
+```
+- No key -> the same `ProviderError` (`no_key`) as `generateImage`.
+- Step 1: `GET ${GALLERY_URL}?limit=1` with the bearer header through `requestJson` (30 s timeout).
+  - answer with an `items` array -> `list: 'ok'`.
+  - a `ProviderError` with code `network` or `timeout` -> `list: 'blocked'`, `reason` = its message.
+  - any other `ProviderError` (an http status, invalid JSON) or an answer without an `items` array ->
+    `list: 'refused'`, `status` = the http status when known (else `null`), `reason` = the message.
+  - an abort is thrown on as it is.
+- Step 2 only after `list: 'ok'`: the first picture address `items[0].mediaGeneration.images[0].url`.
+  - none (empty gallery, no string) -> `download: 'none'`.
+  - otherwise it is fetched with `fetchImageAsBase64` of `http.js` and the result is thrown away:
+    success -> `download: 'ok'`; `ProviderError` with code `network` or `timeout` -> `download: 'blocked'` with
+    `downloadReason`; any other error -> `download: 'refused'` with `downloadStatus` (when known) and
+    `downloadReason`.
+- Fields that do not apply are `null`. Before step 2 runs, `download` is `null`.
+- Nothing of the answer is returned besides these outcome fields. `openrouter.js` gets no such function.
+
+### 22.2 UI: new file `src/settings/gallery-probe-view.js`, slot in `src/settings/panel.js`
+```js
+export function createGalleryProbeView()     // -> { element }
+```
+`panel.js`: `<div class="bfqig-gallery-probe-slot"></div>` directly after `.bfqig-text-model-slot` (inside
+"Erweitert"); the view is mounted there. No other change in `panel.js`.
+
+| Element | Id / class | Notes |
+|---|---|---|
+| button | `#bfqig-gallery-probe`, class `menu_button` | text `Galerie-Abruf testen`; disabled while the test runs |
+| note | `#bfqig-gallery-probe-note`, class `bfqig-note`, `aria-live="polite"` | texts below |
+
+A click reads the current provider (`getSettings().provider`), resolves the key with `resolveApiKey(provider)`
+and calls `provider.probeGallery({ apiKey })`.
+
+| Outcome | Note text |
+|---|---|
+| before the first click | `Prüft, ob diese App fertige Bilder nachträglich aus deiner NanoGPT-Galerie holen dürfte. Es wird nichts angezeigt oder gespeichert.` |
+| running | `Wird geprüft …` |
+| provider without `probeGallery` | `Diesen Test gibt es nur für NanoGPT.` |
+| key or other error before the test | the error's message |
+| `list: 'blocked'` | `Gesperrt: Diese App darf die Galerie nicht abrufen (<reason>). Nachträgliches Holen geht auf diesem Gerät nicht.` |
+| `list: 'refused'` | `NanoGPT lehnt die Galerie-Abfrage ab (<status or reason>).` |
+| `download: 'none'` | `Galerie erreichbar, aber leer: Ob Bilder geladen werden dürfen, ließ sich nicht prüfen.` |
+| `download: 'blocked'` | `Galerie erreichbar, aber der Bild-Download ist gesperrt (<downloadReason>).` |
+| `download: 'refused'` | `Galerie erreichbar, aber der Bild-Download wird abgelehnt (<downloadStatus or downloadReason>).` |
+| `download: 'ok'` | `Möglich: Galerie und Bild-Download sind von diesem Gerät aus erreichbar.` |
+
+### 22.3 Tests, README, version
+- New `tests/providers/gallery-probe.test.js` with a fake `fetchImpl`: no key; list ok + download ok (the
+  bearer header, the URL with `limit=1`, the picture address taken from `items[0].mediaGeneration.images[0].url`);
+  list blocked (fetch rejects with `TypeError('Failed to fetch')`) and that step 2 is not run; list refused
+  (http 401) with the status; answer without `items`; empty `items` -> `download: 'none'`; download blocked;
+  download refused (http 403); an aborted signal is thrown on.
+- README: one sentence under "Android" on what the button is for.
+- Version `1.9.2` in `package.json`, `package-lock.json` (both places) and `manifest.json`.
+- No test is deleted; the count does not drop (356 before). `npx eslint .` clean, no JS file above 400 lines.
+
+### 22.4 Live test (orchestrator)
+SillyTavern test instance in a desktop browser: the button reports `Gesperrt: …` (the browser enforces the
+missing permission). The owner then runs it in TauriTavern on Android; that result decides whether fetching
+lost pictures from the gallery is worth building.

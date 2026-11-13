@@ -146,6 +146,9 @@ virtualization, scrolling can show blank rows while a reply is held back. In par
 writing the image prompt, TauriTavern's "reply ready" notification can be missing when the reply finishes before
 that prompt request.
 
+"Galerie-Abruf testen" (under "Erweitert", NanoGPT only) checks whether this device may later fetch a finished
+picture from the NanoGPT web gallery when Android cut the request; it shows only the outcome and stores nothing.
+
 ## Not verified
 
 - Calls against the real OpenRouter API (tested only against the local mock server and recorded model-list
