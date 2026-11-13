@@ -154,7 +154,9 @@ export async function prepareImage(lastIndex, { signal, onPrompt } = {}) {
     throwIfAborted(signal);
     const candidates = listCandidates();
     const maxPrompts = jobs.length > 1 ? PICTURE_PROMPT_LIMIT : 1;
-    const scene = await describeScene({ lastIndex, settings: target.settings, candidates, maxPrompts });
+    const textModelId = target.settings.textModels[providerId];
+    const textModel = textModelId ? { provider: target.provider, apiKey: target.apiKey, model: textModelId } : null;
+    const scene = await describeScene({ lastIndex, settings: target.settings, candidates, maxPrompts, textModel, signal });
     throwIfAborted(signal);
     const wishCount = scene.descriptions.length;
     if (wishCount > jobs.length) notify.warning(tooManyWishesWarning(jobs.length, wishCount));

@@ -69,6 +69,10 @@ Disable or remove the original if you no longer want its palette button and sett
     already there.
 12. Deleting a message, a swipe or a picture with the app's own controls also takes the pictures out of the
     Galerie and Referenzen tabs. The picture files themselves are left alone.
+13. "Textmodell für den Bildprompt" under "Erweitert" picks a text model of its own that writes the image prompt,
+    apart from the model you chat with. The list comes from the picture's provider (NanoGPT or OpenRouter), and the
+    request uses the same key as the pictures. Each provider keeps its own choice. The empty choice "Chat-Modell der
+    App (Standard)" lets the chat model of the app write the prompt, as before.
 
 ### Reference pictures
 

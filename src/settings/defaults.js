@@ -14,6 +14,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
     models: Object.freeze({ ...DEFAULT_MODELS }),
     favorites: Object.freeze({ nanogpt: Object.freeze([]), openrouter: Object.freeze([]) }),
     batch: Object.freeze({ nanogpt: Object.freeze([]), openrouter: Object.freeze([]) }),
+    // '' means the chat model of the app writes the image prompt.
+    textModels: Object.freeze({ nanogpt: '', openrouter: '' }),
     instruction: DEFAULT_INSTRUCTION,
     description: DEFAULT_DESCRIPTION,
     descriptionWords: DESCRIPTION_WORDS.fallback,
@@ -125,6 +127,7 @@ export function normalizeSettings(saved) {
         models: perProvider(src.models, (value, id) => toStr(value).trim() || DEFAULT_MODELS[id]),
         favorites: perProvider(src.favorites, (value) => uniqueStrings(value)),
         batch: perProvider(src.batch, (value) => normalizeBatch(value)),
+        textModels: perProvider(src.textModels, (value) => toStr(value).trim()),
         instruction: normalizeInstruction(src.instruction),
         description: normalizeDescription(src.description),
         descriptionWords: toDescriptionWords(src.descriptionWords),

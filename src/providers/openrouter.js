@@ -1,6 +1,8 @@
 // OpenRouter dedicated image API (spec 5.10). PURE.
 import { DEFAULT_MODELS, SECRET_KEYS } from '../shared/constants.js';
-import { ProviderError, extractImage, requestJson, truncatePrompt } from './http.js';
+import {
+    ProviderError, buildChatBody, extractImage, normalizeTextModels, requestChatText, requestJson, truncatePrompt,
+} from './http.js';
 import { selectOpenRouterSize } from './sizing.js';
 
 export const id = 'openrouter';
@@ -9,6 +11,8 @@ export const secretKey = SECRET_KEYS.openrouter;
 export const defaultModel = DEFAULT_MODELS.openrouter;
 export const MODELS_URL = 'https://openrouter.ai/api/v1/images/models';
 export const GENERATE_URL = 'https://openrouter.ai/api/v1/images';
+export const TEXT_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+export const CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 const DEFAULT_PROMPT_CHARS = 4000;
 const TIMEOUT_MS = 180000;
@@ -81,4 +85,20 @@ export async function generateImage({ apiKey, model, prompt, aspect, quality, mo
         provider: label,
     });
     return extractImage(json, { label, signal, fetchImpl });
+}
+
+export { normalizeTextModels };
+
+export async function listTextModels({ signal, fetchImpl } = {}) {
+    const json = await requestJson(TEXT_MODELS_URL, { signal, fetchImpl, provider: label });
+    return normalizeTextModels(json);
+}
+
+export function buildChatRequest({ model, systemPrompt, prompt, maxTokens }) {
+    return { url: CHAT_URL, body: buildChatBody({ model, systemPrompt, prompt, maxTokens }) };
+}
+
+export async function generateText({ apiKey, model, systemPrompt, prompt, maxTokens, signal, fetchImpl }) {
+    const { url, body } = buildChatRequest({ model, systemPrompt, prompt, maxTokens });
+    return requestChatText(url, { apiKey, body, signal, fetchImpl, provider: label });
 }

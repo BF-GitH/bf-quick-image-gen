@@ -159,7 +159,8 @@
 
 .bfqig-settings #bfqig-key-status[data-state="locked"],
 .bfqig-settings #bfqig-key-status[data-state="missing"],
-.bfqig-settings #bfqig-model-info[data-state="error"] {
+.bfqig-settings #bfqig-model-info[data-state="error"],
+.bfqig-settings #bfqig-text-model-note[data-state="error"] {
     color: var(--bfqig-danger);
     opacity: 1;
 }

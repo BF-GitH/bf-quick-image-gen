@@ -223,3 +223,49 @@ export function truncatePrompt(prompt, maxChars) {
     if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
     return cut;
 }
+
+// Text models for the image prompt (spec 19.1); both providers list and answer in the OpenAI shape.
+function keepTextModel(model) {
+    if (typeof model?.id !== 'string') return false;
+    const outputs = model.architecture?.output_modalities;
+    return !Array.isArray(outputs) || outputs.includes('text');
+}
+
+export function normalizeTextModels(json) {
+    const list = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+    return list
+        .filter(keepTextModel)
+        .map((model) => ({ id: model.id, name: typeof model.name === 'string' && model.name ? model.name : model.id }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function buildChatBody({ model, systemPrompt, prompt, maxTokens }) {
+    const messages = [];
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+    messages.push({ role: 'user', content: prompt });
+    const body = { model, messages };
+    if (Number.isFinite(maxTokens) && maxTokens > 0) body.max_tokens = maxTokens;
+    body.stream = false;
+    return body;
+}
+
+export function extractChatText(json) {
+    const content = json?.choices?.[0]?.message?.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) return content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
+    return '';
+}
+
+export async function requestChatText(url, { apiKey, body, signal, fetchImpl, provider }) {
+    if (!apiKey) throw new ProviderError(`${provider}: Kein API-Key`, { provider, code: 'no_key' });
+    const json = await requestJson(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body,
+        signal,
+        timeoutMs: 120000,
+        fetchImpl,
+        provider,
+    });
+    return extractChatText(json);
+}

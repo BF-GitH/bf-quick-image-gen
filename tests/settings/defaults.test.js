@@ -13,6 +13,7 @@ const EXPECTED_DEFAULTS = {
     contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
     references: [], referenceOrder: {},
     batch: { nanogpt: [], openrouter: [] },
+    textModels: { nanogpt: '', openrouter: '' },
 };
 
 test('DEFAULT_SETTINGS matches the template and is frozen', () => {
@@ -49,6 +50,7 @@ test('normalizeSettings keeps valid values', () => {
         references: [{ url: 'user/images/bfqig-references/r.jpg', names: ['Kyouko'], enabled: false, timestamp: 5 }],
         referenceOrder: { kyouko: ['user/images/bfqig-references/r.jpg'] },
         batch: { nanogpt: [{ model: 'x', count: 2 }], openrouter: [] },
+        textModels: { nanogpt: 'deepseek-chat', openrouter: '' },
     };
     const result = normalizeSettings(saved);
     assert.deepEqual(result, saved);
@@ -87,6 +89,21 @@ test('normalizeSettings rejects unknown provider, aspect and quality', () => {
 test('normalizeSettings deduplicates favourites', () => {
     const result = normalizeSettings({ favorites: { nanogpt: ['a', 'b', 'a', '', 'b'], openrouter: ['c', 'c'] } });
     assert.deepEqual(result.favorites, { nanogpt: ['a', 'b'], openrouter: ['c'] });
+});
+
+test('DEFAULT_SETTINGS.textModels is frozen and empty for every provider', () => {
+    assert.ok(Object.isFrozen(DEFAULT_SETTINGS.textModels));
+    assert.deepEqual(DEFAULT_SETTINGS.textModels, { nanogpt: '', openrouter: '' });
+});
+
+test('normalizeSettings trims textModels, turns garbage into "" and drops unknown providers', () => {
+    const result = normalizeSettings({ textModels: { nanogpt: '  deepseek-chat  ', openrouter: null, stability: 'x' } });
+    assert.deepEqual(result.textModels, { nanogpt: 'deepseek-chat', openrouter: '' });
+    assert.deepEqual(normalizeSettings({ textModels: { nanogpt: 5, openrouter: '   ' } }).textModels, { nanogpt: '5', openrouter: '' });
+    for (const garbage of [undefined, null, 'x', [], 7]) {
+        assert.deepEqual(normalizeSettings({ textModels: garbage }).textModels, { nanogpt: '', openrouter: '' }, String(garbage));
+    }
+    assert.notEqual(normalizeSettings(undefined).textModels, DEFAULT_SETTINGS.textModels);
 });
 
 test('normalizeSettings drops gallery entries without a string url and caps the list', () => {

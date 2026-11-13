@@ -57,7 +57,7 @@ function findRequestMessage(lastIndex) {
 }
 
 // -> { descriptions, names } with names = null when the answer carried no "Shown:" line.
-async function askChatModel({ instruction, sceneBlock, userName, known, settings, maxPrompts, requestMessage }) {
+async function askChatModel({ instruction, sceneBlock, userName, known, settings, maxPrompts, requestMessage, textModel, signal }) {
     try {
         const request = buildLlmRequest({
             instruction,
@@ -70,7 +70,16 @@ async function askChatModel({ instruction, sceneBlock, userName, known, settings
             requestMessage,
         });
         const minResponseTokens = IMAGE_PROMPT_MIN_TOKENS + TOKENS_PER_EXTRA_PROMPT * (maxPrompts - 1);
-        const answer = await generateText({ ...request, minResponseTokens });
+        const answer = textModel
+            ? await textModel.provider.generateText({
+                apiKey: textModel.apiKey,
+                model: textModel.model,
+                systemPrompt: request.systemPrompt,
+                prompt: request.prompt,
+                maxTokens: minResponseTokens,
+                signal,
+            })
+            : await generateText({ ...request, minResponseTokens });
         const { names, text } = splitShownLine(answer);
         const pictures = maxPrompts > 1 ? splitPictureLines(text, { max: maxPrompts }) : [];
         const single = pictures.length > 0 ? '' : cleanLlmOutput(text);
@@ -101,7 +110,8 @@ async function loadReferences(selected, loaded) {
 }
 
 // Asks the chat model once per run; composeImagePrompt then fits the result to each model of the run.
-export async function describeScene({ lastIndex, settings, candidates = [], maxPrompts = 1 }) {
+// textModel = { provider, apiKey, model } sends the request to the picture's provider instead of the chat model.
+export async function describeScene({ lastIndex, settings, candidates = [], maxPrompts = 1, textModel = null, signal }) {
     const prompts = Number.isInteger(maxPrompts) && maxPrompts > 1 ? maxPrompts : 1;
     const known = knownNames(candidates);
     const userName = getParticipantNames().user;
@@ -124,7 +134,7 @@ export async function describeScene({ lastIndex, settings, candidates = [], maxP
     if (settings.useLlm) {
         const requestMessage = prompts > 1 ? findRequestMessage(lastIndex) : '';
         ({ descriptions, names: reported, problem: llmProblem } = await askChatModel({
-            instruction, sceneBlock, userName, known, settings, maxPrompts: prompts, requestMessage,
+            instruction, sceneBlock, userName, known, settings, maxPrompts: prompts, requestMessage, textModel, signal,
         }));
     }
     const usedLlm = descriptions.length > 0;
