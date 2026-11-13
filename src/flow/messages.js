@@ -11,4 +11,6 @@ export const MESSAGES = Object.freeze({
     statusReply: 'Antwort wird erstellt …',
     statusImage: 'Bild wird generiert …',
     imageTimeout: 'Zeitüberschreitung bei der Bilderstellung.',
+    resendComposer: 'Das Nachrichtenfeld muss dafür leer sein.',
+    resendNotLast: 'Das geht nur, solange deine Nachricht die letzte im Chat ist.',
 });

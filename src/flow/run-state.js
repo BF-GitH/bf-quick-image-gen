@@ -3,7 +3,7 @@
 
 import { LOG_PREFIX } from '../shared/constants.js';
 import { MESSAGES } from './messages.js';
-import { earlyExitMessage } from './preflight.js';
+import { earlyExitMessage, resendExitMessage } from './preflight.js';
 
 export { MESSAGES };
 
@@ -197,8 +197,8 @@ export function createSendWithImageController({
         host.onEvent('CHAT_CHANGED', onChatChanged),
     ];
 
-    async function start() {
-        const early = earlyExitMessage(host, run !== null);
+    async function start({ resend = false } = {}) {
+        const early = earlyExitMessage(host, run !== null, { resend });
         if (early) {
             notify.warning(early);
             return false;
@@ -218,10 +218,17 @@ export function createSendWithImageController({
             notify.warning(MESSAGES.generating);
             return false;
         }
+        // The chat may have changed while precheck was awaited.
+        const resendExit = resend ? resendExitMessage(host) : null;
+        if (resendExit) {
+            notify.warning(resendExit);
+            return false;
+        }
 
         const r = {
             phase: 'armed',
-            userIndex: host.getChatLength(),
+            // A resend adds no message: the reply follows the user's message that is already last.
+            userIndex: resend ? host.getChatLength() - 1 : host.getChatLength(),
             abort: new AbortController(),
             restoreStreaming: null,
             handled: false,

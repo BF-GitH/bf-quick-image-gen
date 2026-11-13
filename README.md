@@ -46,6 +46,10 @@ Disable or remove the original if you no longer want its palette button and sett
    the current moment, the latest message.
 7. A long-press on a generated image in the chat opens the viewer with "Löschen" and "Auf Gerät speichern"
    (on Android the host's own image controls only appear on hover).
+8. "Prompt anzeigen" in the status bar shows the finished image prompt while the picture is generated, so a
+   picture that is going wrong can be cancelled early.
+9. Reply deleted and your own message is the last one in the chat: the picture button of that message writes the
+   reply again and then the picture, in both modes. The message box must be empty for this.
 
 ### Reference pictures
 

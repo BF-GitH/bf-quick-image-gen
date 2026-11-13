@@ -75,7 +75,7 @@ export function initSendWithImage() {
             onEvent: onHostEvent,
         },
         precheck: precheckExcept('hold'),
-        processReply: (index, signal) => generateImageForMessage(index, { signal, saveBefore: true }),
+        processReply: (index, signal) => generateImageForMessage(index, { signal, saveBefore: true, onPrompt: hold.setPrompt }),
         hold,
         notify: toastNotify,
         onFailure: showFailure,
@@ -87,11 +87,12 @@ export function initSendWithImage() {
             isGenerating,
             getComposerText,
             clickSend,
+            getChatLength,
             getRawMessage,
             onEvent: onHostEvent,
         },
         precheck: precheckExcept('parallel'),
-        prepareImage: (lastIndex, signal) => prepareImage(lastIndex, { signal }),
+        prepareImage: (lastIndex, signal) => prepareImage(lastIndex, { signal, onPrompt: hold.setPrompt }),
         captureReply: captureMessage,
         attachImage: attachPreparedImage,
         discardImage: discardPreparedImage,
@@ -125,11 +126,17 @@ export function initSendWithImage() {
         await runForMessage(messageIndex);
     }
 
-    // Adds one more picture to the message; the ones it already has stay.
+    // Adds one more picture to the message; the ones it already has stay. The user's own last message has no
+    // reply yet (it was deleted), so it gets the reply written again and the picture with it.
     async function imageForMessage(messageIndex) {
         if (refuseWhileBusy()) return;
-        if (!getRawMessage(messageIndex)) {
+        const message = getRawMessage(messageIndex);
+        if (!message) {
             notify.warning(MESSAGE_GONE);
+            return;
+        }
+        if (message.is_user && messageIndex === getChatLength() - 1) {
+            await (getSettings().parallelImage ? parallelController : holdController).start({ resend: true });
             return;
         }
         await runForMessage(messageIndex);
@@ -142,7 +149,7 @@ export function initSendWithImage() {
         // The text is already visible on a retry, so "Text sofort zeigen" would promise nothing.
         hold.setStatus(MESSAGES.statusImage, { onCancel: () => abort.abort(), cancelLabel: 'Abbrechen' });
         try {
-            await generateImageForMessage(messageIndex, { signal: abort.signal, saveAfterAttach: true });
+            await generateImageForMessage(messageIndex, { signal: abort.signal, saveAfterAttach: true, onPrompt: hold.setPrompt });
             failures.delete(messageIndex);
         } catch (error) {
             if (!isAbort(error, abort.signal)) showFailure(messageIndex, error);

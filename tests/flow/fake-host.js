@@ -139,6 +139,7 @@ export function setupParallel({ precheck, attachImage, captureReply, onFailure, 
         isGenerating: () => state.generating,
         getComposerText: () => state.composer,
         clickSend: () => { state.clicks++; return state.clickResult; },
+        getChatLength: () => state.chat.length,
         getRawMessage: (index) => state.chat[index] ?? null,
         onEvent: (key, handler) => bus.on(key, handler),
     };

@@ -4,7 +4,7 @@
 
 import { LOG_PREFIX } from '../shared/constants.js';
 import { MESSAGES } from './messages.js';
-import { earlyExitMessage } from './preflight.js';
+import { earlyExitMessage, resendExitMessage } from './preflight.js';
 
 const DEFAULT_CONFIG = Object.freeze({
     startTimeoutMs: 8000, endedGraceMs: 1500, watchdogMs: 2000, imagingTimeoutMs: 240000,
@@ -178,6 +178,12 @@ export function createParallelImageController({
     function onGenerationStarted(type, _options, dryRun) {
         const r = run;
         if (!r || dryRun === true || type === 'quiet') return;
+        // A resend adds no message, so MESSAGE_SENT never comes: the image starts once the host really started.
+        if (r.resend && r.phase === 'armed') {
+            r.phase = 'running';
+            clearTimer(r, 'startTimer');
+            startImageJob(r, r.userIndex);
+        }
         // A follow-up generation of the same send (tool calls) keeps the run alive.
         clearTimer(r, 'graceTimer');
         r.idleTicks = 0;
@@ -217,8 +223,8 @@ export function createParallelImageController({
         host.onEvent('CHAT_CHANGED', cancel),
     ];
 
-    async function start() {
-        const early = earlyExitMessage(host, run !== null);
+    async function start({ resend = false } = {}) {
+        const early = earlyExitMessage(host, run !== null, { resend });
         if (early) {
             notify.warning(early);
             return false;
@@ -238,10 +244,17 @@ export function createParallelImageController({
             notify.warning(MESSAGES.generating);
             return false;
         }
+        // The chat may have changed while precheck was awaited.
+        const resendExit = resend ? resendExitMessage(host) : null;
+        if (resendExit) {
+            notify.warning(resendExit);
+            return false;
+        }
 
         const r = {
             phase: 'armed',
-            userIndex: -1,
+            resend,
+            userIndex: resend ? host.getChatLength() - 1 : -1,
             abort: new AbortController(),
             image: 'idle',
             prepared: null,

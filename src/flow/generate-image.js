@@ -104,7 +104,17 @@ function isSameMessage(messageIndex, token) {
     return message === token.message && message.swipe_id === token.swipeId && getChatId() === token.chatId;
 }
 
-export async function prepareImage(lastIndex, { signal } = {}) {
+// The status bar shows the prompt; a failing display must never cost the picture.
+function reportPrompt(onPrompt, prompt) {
+    if (typeof onPrompt !== 'function') return;
+    try {
+        onPrompt(prompt);
+    } catch (error) {
+        console.warn(`${LOG_PREFIX} onPrompt failed:`, error?.message ?? error);
+    }
+}
+
+export async function prepareImage(lastIndex, { signal, onPrompt } = {}) {
     throwIfAborted(signal);
     const target = await resolveTarget(signal);
     const modelInfo = await getModelInfo(target.provider.id, target.model);
@@ -117,6 +127,7 @@ export async function prepareImage(lastIndex, { signal } = {}) {
         maxReferences: target.provider.maxReferenceImages(modelInfo),
     });
     throwIfAborted(signal);
+    reportPrompt(onPrompt, prompt);
     if (llmProblem) notify.warning(llmProblemWarning(llmProblem));
     if (failedReferences > 0) notify.warning(REFERENCES_FAILED_WARNING);
 
@@ -156,14 +167,14 @@ export async function attachPreparedImage(messageIndex, prepared, { token, save 
     }
 }
 
-export async function generateImageForMessage(messageIndex, { signal, saveBefore = false, saveAfterAttach = false } = {}) {
+export async function generateImageForMessage(messageIndex, { signal, saveBefore = false, saveAfterAttach = false, onPrompt } = {}) {
     throwIfAborted(signal);
     const token = captureMessage(messageIndex);
     if (saveBefore) {
         await saveChat();
         throwIfAborted(signal);
     }
-    const prepared = await prepareImage(messageIndex, { signal });
+    const prepared = await prepareImage(messageIndex, { signal, onPrompt });
     await attachPreparedImage(messageIndex, prepared, { token, save: saveAfterAttach });
     return { url: prepared.url, prompt: prepared.prompt };
 }

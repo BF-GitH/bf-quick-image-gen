@@ -1411,3 +1411,136 @@ without knowing why it looked different.
   entsteht aus dem Rohtext der Nachricht.')` and goes on with the direct prompt as before.
 - Checked in SillyTavern with both requests simulated (nothing sent): the warning appears next to the host's own
   error toast.
+
+## 16. Prompt preview, and reply + picture from the own message (version 1.6.0, **BINDING**)
+
+Owner's request, two parts:
+1. While a picture is generated, a button shows the finished image prompt, so a picture that is going wrong can
+   be cancelled early instead of after the wait.
+2. The reply was deleted and the owner's own message is the last one in the chat: a tap on the picture button of
+   that message writes the reply again and then the picture, without deleting and retyping the message.
+
+Host fact both parts build on (read in `script.js` of SillyTavern 1.18 and TauriTavern 2.4.0): a click on
+`#send_but` with an empty `#send_textarea` runs `Generate('normal')`. With the user's message last in the chat
+no message is added, so `GENERATION_STARTED` and `MESSAGE_RECEIVED` fire but `MESSAGE_SENT` does not. (Two host
+settings add a message after all, a pending file attachment and the preset option "send if empty"; then
+`MESSAGE_SENT` fires as usual and nothing below may break on it.)
+
+### 16.1 WIRING: `src/flow/generate-image.js`
+```js
+export async function prepareImage(lastIndex, { signal, onPrompt } = {})
+export async function generateImageForMessage(messageIndex, { signal, saveBefore = false, saveAfterAttach = false, onPrompt } = {})
+```
+- `prepareImage` calls `onPrompt(prompt)` exactly once with the final prompt string that goes to the image model
+  (style, reference preamble and description, as returned by `buildImagePrompt`). The call sits directly after
+  the `throwIfAborted(signal)` that follows `buildImagePrompt`, so a cancelled job never reports a prompt, and
+  before the two warnings.
+- An exception inside `onPrompt` is logged with `console.warn` and never fails the image. No `onPrompt` given:
+  nothing happens.
+- `generateImageForMessage` passes `onPrompt` through. `generateTestImage` is unchanged.
+
+### 16.2 UI: `src/flow/hold.js`
+`createHold()` returns `{ engage, release, setStatus, setPrompt }`.
+
+- `setPrompt(text)`: a non-empty string is remembered for the status bar that is shown right now and the bar is
+  drawn again. No bar shown: ignored (a late prompt of a finished job must not open a bar). Anything else than a
+  non-empty string forgets the prompt.
+- `setStatus(null)` removes the bar and forgets the prompt and the open state. `setStatus(text, options)` draws
+  the bar again and keeps prompt and open state (hold mode changes the text while a job runs).
+- With a prompt remembered the bar carries, between the status text and the cancel button, a button
+  `#bfqig-status-prompt` (`type="button"`, class `menu_button`, `aria-expanded`). Text `Prompt anzeigen`, opened
+  `Prompt verbergen`. A click toggles the open state and draws the bar again.
+- Opened, the bar ends with `<div id="bfqig-status-prompt-text" class="bfqig-status-prompt-text">` holding the
+  prompt as `textContent` (never as HTML).
+- Element order in the bar: spinner, `.bfqig-status-text`, prompt button, cancel button, prompt text.
+  Ids, classes and behaviour of everything that exists today stay as they are.
+
+### 16.3 PURE: `src/flow/messages.js`, `src/flow/preflight.js`
+New entries in `MESSAGES`:
+
+| Key | Text |
+|---|---|
+| `resendComposer` | `Das Nachrichtenfeld muss dafür leer sein.` |
+| `resendNotLast` | `Das geht nur, solange deine Nachricht die letzte im Chat ist.` |
+
+```js
+export function resendExitMessage(host)                              // -> string | null
+export function earlyExitMessage(host, isBusy, { resend = false } = {})
+```
+- `resendExitMessage`: composer text other than the empty string (not trimmed: the host would send whitespace
+  as a message) -> `resendComposer`. Otherwise the message at `host.getChatLength() - 1` is missing or not
+  `is_user` -> `resendNotLast`. Otherwise `null`.
+- `earlyExitMessage`: `busy`, `noChat` and `generating` as before, in that order. Then with `resend` the result
+  of `resendExitMessage(host)`; without it the `emptyText` and `slash` checks as before.
+
+### 16.4 PURE: `src/flow/run-state.js` (hold mode)
+`start({ resend = false } = {})`. Without `resend` nothing changes. With `resend`:
+- `earlyExitMessage(host, run !== null, { resend: true })`; after the awaited `precheck`, next to the existing
+  re-checks, `resendExitMessage(host)` once more (the chat may have changed meanwhile): a text -> warning toast,
+  `false`, no click.
+- `userIndex = host.getChatLength() - 1`, the existing message. `hold.engage(userIndex)`, status, timers and the
+  click are the same as today.
+- No other change: `GENERATION_STARTED` arms the run, the reply arrives at an index above `userIndex`, a
+  `MESSAGE_SENT` that does come moves `userIndex` as it does today.
+
+### 16.5 PURE: `src/flow/parallel-run.js` (parallel mode)
+`start({ resend = false } = {})`; the host object gains `getChatLength`. Without `resend` nothing changes: the
+image job starts on `MESSAGE_SENT`, never on `GENERATION_STARTED`. With `resend`:
+- The same two checks as in 16.4. The run remembers `resend: true` and `userIndex = host.getChatLength() - 1`.
+- Nothing is generated before the host really started: the image job starts on the first `GENERATION_STARTED`
+  that is neither a dry run nor of type `quiet`, while the run is still `armed`. That handler sets the phase to
+  `running`, clears the start timer and calls `startImageJob(r, r.userIndex)`. Later `GENERATION_STARTED`
+  events of the same run (tool calls) start no second job.
+- The host never starts: the existing start timer ends the run with `notStarted`; no image job was started and
+  nothing was paid.
+- A `MESSAGE_SENT` during a resend run is harmless: the job that already runs stays the only one.
+
+### 16.6 WIRING: `src/flow/send-with-image.js`
+- All three places that generate a picture report the prompt to the status bar with `onPrompt: hold.setPrompt`:
+  `processReply` of the hold controller, `prepareImage` of the parallel controller, `runForMessage`.
+- The parallel controller's host object gets `getChatLength`.
+- `imageForMessage(messageIndex)`: after `refuseWhileBusy()` and the missing-message check, a message that is
+  `is_user` and has the index `getChatLength() - 1` goes to
+  `(getSettings().parallelImage ? parallelController : holdController).start({ resend: true })`. Every other
+  message keeps today's behaviour (one more picture for that message, also for an own message further up).
+- The returned `start` (wand menu entry "Senden + Bild") is unchanged and still asks for text.
+
+### 16.7 `style.css`
+- `.bfqig-status` gets `flex-wrap: wrap`.
+- `.bfqig-status #bfqig-status-prompt`: like the cancel button (`flex: 0 0 auto; min-height: 40px; margin: 0;
+  white-space: nowrap`).
+- `.bfqig-status-prompt-text`: `flex: 1 0 100%; max-height: 30vh; overflow-y: auto; white-space: pre-wrap;
+  overflow-wrap: anywhere; user-select: text; font-size: 0.9em;` with a top border in
+  `var(--SmartThemeBorderColor)` and a small padding.
+
+### 16.8 Tests, README, version
+- New file `tests/flow/resend.test.js`; `tests/flow/fake-host.js` gets what it needs (`getChatLength` on the
+  parallel host). Existing test files are not edited. At least:
+
+  | Controller | Case |
+  |---|---|
+  | hold | text in the composer -> `resendComposer`, no click, not active |
+  | hold | last message not the user's -> `resendNotLast`, no click |
+  | hold | happy path: `engage` with the index of the existing user message (not the chat length), one click, `GENERATION_STARTED`, reply at index + 1 -> `processReply` called with that reply index, then released |
+  | hold | the last message changes while `precheck` is awaited -> `resendNotLast`, no click |
+  | hold | `start()` without `resend` and an empty composer still answers `emptyText` |
+  | parallel | both refusals as above |
+  | parallel | happy path: no job after the click; `GENERATION_STARTED('normal')` -> exactly one job with `lastIndex` = index of the user message; reply + finished job -> `attachImage` with the reply index |
+  | parallel | `GENERATION_STARTED` of type `quiet` or with `dryRun === true` starts no job |
+  | parallel | a second `GENERATION_STARTED` starts no second job |
+  | parallel | the host never starts -> start timer, `notStarted`, zero jobs |
+  | parallel | `start()` without `resend`: `GENERATION_STARTED` alone starts no job, `MESSAGE_SENT` does |
+  | preflight | `resendExitMessage`: whitespace-only composer counts as text; empty chat -> `resendNotLast` |
+
+- No existing test is deleted; the count does not drop (250 before). `npx eslint .` stays clean, no file above
+  400 lines, `tests/architecture.test.js` green.
+- README, section "Use": one item for the "Prompt anzeigen" button of the status bar, one for the picture
+  button on the own last message (reply deleted -> reply and picture again, message box must be empty). The
+  existing bullet "The image button among a message's icons ..." stays correct.
+- Version `1.6.0` in `package.json`, `package-lock.json` (both places) and `manifest.json`.
+
+### 16.9 Live test (orchestrator, not the implementer)
+SillyTavern test instance, chat model `deepseek-chat`, image model `hidream-o1-image-dev`, one request at a
+time: the prompt button appears while the picture is generated and shows the prompt that the image request
+carries; with the reply deleted, the picture button on the own message writes a new reply and attaches a
+picture, in hold mode and in parallel mode, and the chat holds no second copy of the own message.

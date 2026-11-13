@@ -4,6 +4,8 @@
 const STYLE_ID = 'bfqig-hold-style';
 const STATUS_ID = 'bfqig-status';
 const CANCEL_LABEL = 'Text sofort zeigen';
+const PROMPT_SHOW_LABEL = 'Prompt anzeigen';
+const PROMPT_HIDE_LABEL = 'Prompt verbergen';
 
 function placeStatusBar(bar) {
     const sendForm = document.getElementById('send_form');
@@ -31,12 +33,53 @@ export function createHold() {
         document.getElementById(STYLE_ID)?.remove();
     }
 
-    function setStatus(text, { onCancel, cancelLabel = CANCEL_LABEL } = {}) {
-        let bar = document.getElementById(STATUS_ID);
+    // What the shown bar carries, so a prompt or a toggle can draw it again; null while no bar is shown.
+    let shown = null;
+    let prompt = null;
+    let promptOpen = false;
+
+    function setStatus(text, options) {
         if (text === null || text === undefined) {
-            bar?.remove();
+            shown = null;
+            prompt = null;
+            promptOpen = false;
+            document.getElementById(STATUS_ID)?.remove();
             return;
         }
+        shown = { text, options };
+        draw();
+    }
+
+    function setPrompt(text) {
+        if (typeof text !== 'string' || text === '') {
+            prompt = null;
+            promptOpen = false;
+        } else if (shown) {
+            prompt = text;
+        } else {
+            return;
+        }
+        if (shown) draw();
+    }
+
+    function promptButton() {
+        const button = document.createElement('button');
+        button.id = 'bfqig-status-prompt';
+        button.type = 'button';
+        button.className = 'menu_button';
+        button.setAttribute('aria-expanded', String(promptOpen));
+        button.textContent = promptOpen ? PROMPT_HIDE_LABEL : PROMPT_SHOW_LABEL;
+        button.addEventListener('click', () => {
+            promptOpen = !promptOpen;
+            draw();
+        });
+        return button;
+    }
+
+    function draw() {
+        const { text, options } = shown;
+        const { onCancel, cancelLabel = CANCEL_LABEL } = options ?? {};
+        let bar = document.getElementById(STATUS_ID);
         if (!bar) {
             bar = document.createElement('div');
             bar.id = STATUS_ID;
@@ -50,6 +93,7 @@ export function createHold() {
         label.className = 'bfqig-status-text';
         label.textContent = String(text);
         bar.replaceChildren(spinner, label);
+        if (prompt) bar.append(promptButton());
         if (typeof onCancel === 'function') {
             const cancel = document.createElement('button');
             cancel.id = 'bfqig-status-cancel';
@@ -59,8 +103,15 @@ export function createHold() {
             cancel.addEventListener('click', () => onCancel());
             bar.append(cancel);
         }
+        if (prompt && promptOpen) {
+            const promptText = document.createElement('div');
+            promptText.id = 'bfqig-status-prompt-text';
+            promptText.className = 'bfqig-status-prompt-text';
+            promptText.textContent = prompt;
+            bar.append(promptText);
+        }
         placeStatusBar(bar);
     }
 
-    return { engage, release, setStatus };
+    return { engage, release, setStatus, setPrompt };
 }
