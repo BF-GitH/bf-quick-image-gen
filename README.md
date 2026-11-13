@@ -67,6 +67,8 @@ Disable or remove the original if you no longer want its palette button and sett
       carry over into the next pictures. Check the ones you want to use.
 11. The pictures of a message appear below each other; one more picture for the message goes below the ones
     already there.
+12. Deleting a message, a swipe or a picture with the app's own controls also takes the pictures out of the
+    Galerie and Referenzen tabs. The picture files themselves are left alone.
 
 ### Reference pictures
 

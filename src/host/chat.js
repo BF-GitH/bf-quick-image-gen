@@ -23,6 +23,29 @@ export function getRawMessage(index) {
     return message && typeof message === 'object' ? message : null;
 }
 
+function mediaUrls(extra) {
+    const media = extra?.media;
+    if (!Array.isArray(media)) return [];
+    return media.map((entry) => entry?.url).filter((url) => typeof url === 'string' && url !== '');
+}
+
+// swipe_info[swipe_id].extra may be stale while the message is open; the live extra is the truth for it.
+function swipeMediaUrls(message) {
+    const info = message?.swipe_info;
+    const current = message?.swipe_id;
+    if (!Array.isArray(info) || info.length === 0 || !isValidIndex(current)) {
+        return [mediaUrls(message?.extra)];
+    }
+    const count = Math.max(info.length, current + 1);
+    return Array.from({ length: count }, (_, i) => (i === current ? mediaUrls(message.extra) : mediaUrls(info[i]?.extra)));
+}
+
+export function listChatMediaUrls() {
+    const chat = getContext().chat;
+    if (!Array.isArray(chat)) return [];
+    return chat.map((message) => ({ message, swipes: swipeMediaUrls(message) }));
+}
+
 export function getMessageSnapshot(index) {
     const message = getRawMessage(index);
     if (!message) return null;

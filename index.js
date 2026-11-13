@@ -9,6 +9,7 @@ import { initSendWithImage } from './src/flow/send-with-image.js';
 import { generateTestImage } from './src/flow/generate-image.js';
 import { addWandEntry } from './src/wand/entry.js';
 import { installChatImageMenu } from './src/gallery/chat-image-menu.js';
+import { installChatSync } from './src/gallery/chat-sync.js';
 import { installMessageButton } from './src/host/message-buttons.js';
 
 async function init() {
@@ -19,6 +20,7 @@ async function init() {
     const flow = initSendWithImage();
     await mountSettingsPanel({ onTestImage: generateTestImage });
     installChatImageMenu();
+    installChatSync();
     installMessageButton({
         className: 'bfqig_mes_image',
         iconClass: 'fa-solid fa-image',
