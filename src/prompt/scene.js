@@ -16,7 +16,8 @@ export const LEGACY_DEFAULT_INSTRUCTIONS = Object.freeze([
     'Depict the current moment of this roleplay as one image: what happens in the latest message. The picture shows {{char}}, seen through the eyes of {{user}}. {{user}} is not in the picture.',
 ]);
 
-export const LIMITS = Object.freeze({ firstMessageChars: 2500, messageChars: 1500, characterChars: 1200, characterCount: 4 });
+// How far before the current message the user's triggering message is looked for.
+export const TRIGGER_LOOKBACK = 10;
 
 export const DEFAULT_DESCRIPTION = 'who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light';
 export const DESCRIPTION_WORDS = Object.freeze({ min: 20, max: 200, fallback: 45 });
@@ -25,7 +26,7 @@ export const DESCRIPTION_WORDS = Object.freeze({ min: 20, max: 200, fallback: 45
 const SHORT_PROMPT_WORDS = 50;
 
 // The frame (who is shown, head count, naming) stays fixed: reference matching depends on it.
-const SYSTEM_PROMPT_HEAD = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. ';
+const SYSTEM_PROMPT_HEAD = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. ';
 const SYSTEM_PROMPT_NAMING = ' Refer to each person by the name from line 1; for a character from a published work (anime, game, book, film, series) write the full canonical name and the title of the work instead at the first mention, for example "Hermione Granger from Harry Potter". ';
 const SYSTEM_PROMPT_TAIL = ' No dialogue, no explanations. Output only these two lines.';
 
@@ -98,30 +99,41 @@ export function truncateText(text, maxChars) {
     return cut.trimEnd();
 }
 
-function toEntry(snapshot, maxChars) {
-    const text = truncateText(cleanMessageText(snapshot.text), maxChars);
+function toEntry(snapshot) {
+    const text = cleanMessageText(snapshot.text);
     if (!text) return null;
     return { name: toText(snapshot.name), text };
 }
 
-export function collectContext({ chatLength, replyIndex, recentCount, getSnapshot }) {
+// Message 0 is background and a hidden message is out of the story, so neither counts as the message that
+// triggered the reply. -1: none found.
+function findTrigger(top, getSnapshot) {
+    for (let index = top; index >= 1 && index >= top - TRIGGER_LOOKBACK; index--) {
+        const snapshot = getSnapshot(index);
+        if (snapshot?.isUser && !snapshot.isSystem) return index;
+    }
+    return -1;
+}
+
+export function collectContext({ chatLength, replyIndex, getSnapshot }) {
     const length = Number.isInteger(chatLength) ? chatLength : 0;
     let first = null;
     if (length > 0) {
         const snapshot = getSnapshot(0);
-        if (snapshot) first = toEntry(snapshot, LIMITS.firstMessageChars);
+        if (snapshot) first = toEntry(snapshot);
     }
-    const recent = [];
-    const wanted = Math.max(0, Math.floor(Number(recentCount) || 0));
     const top = Math.min(Number.isInteger(replyIndex) ? replyIndex : 0, length - 1);
-    for (let index = top; index >= 1 && recent.length < wanted; index--) {
+    const triggerIndex = findTrigger(top, getSnapshot);
+    const triggerSnapshot = triggerIndex > 0 ? getSnapshot(triggerIndex) : null;
+    const trigger = triggerSnapshot ? toEntry(triggerSnapshot) : null;
+    const recent = [];
+    for (let index = Math.max(1, triggerIndex > 0 ? triggerIndex : top); index <= top; index++) {
         const snapshot = getSnapshot(index);
         if (!snapshot || snapshot.isSystem) continue;
-        const entry = toEntry(snapshot, LIMITS.messageChars);
+        const entry = toEntry(snapshot);
         if (entry) recent.push(entry);
     }
-    recent.reverse();
-    return { first, recent };
+    return { first, recent, trigger };
 }
 
 function formatEntry(entry) {
@@ -201,42 +213,14 @@ export function directSceneBudget({ instruction, styleSuffix, maxChars = 1800 })
     return maxChars - stylePrefixText(styleSuffix).length - toText(instruction).length - SECTION_SEPARATOR.length;
 }
 
-export function collectCharacters(notes) {
-    const list = Array.isArray(notes) ? notes : [];
-    const characters = [];
-    for (const note of list) {
-        if (characters.length >= LIMITS.characterCount) break;
-        const name = toText(note?.name).trim();
-        if (!name) continue;
-        characters.push({ name, text: truncateText(cleanMessageText(note.description), LIMITS.characterChars) });
-    }
-    return characters;
-}
-
-// Without a card the chat model has no looks to work from and does not know whom to name.
-const CHARACTER_HEADING = '[Characters, reference only: who they are and what they look like]';
-
-export function buildCharacterBlock({ characters, userName }) {
-    const list = Array.isArray(characters) ? characters : [];
-    if (list.length === 0) return '';
-    const entries = list.map(({ name, text }) => (text ? `${name} (character): ${text}` : `${name} (character)`));
-    const user = toText(userName).trim();
-    if (user) entries.push(`${user} (user)`);
-    return `${CHARACTER_HEADING}\n${entries.join(SECTION_SEPARATOR)}`;
-}
-
 // The list only fixes spelling, so the names the chat model reports can be matched to reference pictures.
 const KNOWN_NAMES_HEADING = '[Known names, for spelling only]';
 
 const PICTURE_REQUESTS_HEADING = '[Picture requests]';
 
-export function buildLlmRequest({ instruction, sceneBlock, characterBlock = '', knownNames = [], description, maxWords, maxPrompts = 1, requestMessage = '' }) {
+export function buildLlmRequest({ instruction, sceneBlock, knownNames = [], description, maxWords, maxPrompts = 1, requestMessage = '' }) {
     const names = (Array.isArray(knownNames) ? knownNames : []).map(toText).filter((name) => name.trim());
-    const characters = toText(characterBlock);
-    const middle = [names.length > 0 ? `${KNOWN_NAMES_HEADING}\n${names.join(', ')}` : '', characters]
-        .filter(Boolean)
-        .map((block) => `${block}${SECTION_SEPARATOR}`)
-        .join('');
+    const middle = names.length > 0 ? `${KNOWN_NAMES_HEADING}\n${names.join(', ')}${SECTION_SEPARATOR}` : '';
     const request = toText(requestMessage).trim();
     const requests = clampPrompts(maxPrompts) > 1 && request ? `${PICTURE_REQUESTS_HEADING}\n${request}${SECTION_SEPARATOR}` : '';
     return {

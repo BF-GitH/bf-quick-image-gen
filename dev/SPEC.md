@@ -2152,3 +2152,75 @@ and calls `provider.probeGallery({ apiKey })`.
 SillyTavern test instance in a desktop browser: the button reports `Gesperrt: …` (the browser enforces the
 missing permission). The owner then runs it in TauriTavern on Android; that result decides whether fetching
 lost pictures from the gallery is worth building.
+
+## 23. Context of the image prompt: message 0, the triggering message, the reply (version 1.10.0, **BINDING**)
+
+Owner's decision on what the text model gets for writing the image prompt. It replaces the context rules of
+sections 11 and 12 where they differ:
+
+| Before | Now |
+|---|---|
+| message 0, cut to 2500 characters | message 0, not cut |
+| the latest N messages ("Kontext-Nachrichten", default 4), each cut to 1500 characters | the user's message that triggered the reply and the reply itself, not cut |
+| description field of the character card(s) | no character card |
+
+Unchanged: the task (setting "Prompt" plus the point-of-view sentence), the fixed rules with the owner's
+"Bildbeschreibung" and word limit, the list of known names (reference pictures are matched through it), the
+`[Picture requests]` block of section 18, and the cleaning of message texts with `cleanMessageText` (markup and
+think blocks out). The direct prompt that goes to the image model when the text model gives nothing is still
+fitted to that model's prompt limit with `fitContext`.
+
+### 23.1 PURE: `src/prompt/scene.js`
+```js
+export const TRIGGER_LOOKBACK = 10;
+export function collectContext({ chatLength, replyIndex, getSnapshot })     // -> { first, recent, trigger }
+export function buildLlmRequest({ instruction, sceneBlock, knownNames = [], description, maxWords, maxPrompts = 1, requestMessage = '' })
+```
+- `collectContext`:
+  - `first`: message 0 as `{ name, text }`, text cleaned, never cut; no message 0 or empty text -> `null`.
+  - The current message is the one at `replyIndex` (clamped to the last message as today).
+  - The trigger is the nearest message with `isUser` among the current message and the `TRIGGER_LOOKBACK`
+    messages before it, never index 0.
+  - `recent`: with a trigger, every message from the trigger through the current message, in chat order; without
+    one, only the current message. System messages and messages whose cleaned text is empty are left out;
+    index 0 is never part of `recent`. No text is cut.
+  - `trigger`: the `{ name, text }` entry of the trigger message, or `null`.
+  - The parameter `recentCount` is gone.
+- `LIMITS`, `collectCharacters`, `buildCharacterBlock` and the parameter `characterBlock` of `buildLlmRequest` are
+  removed. The request text is `Task: <instruction>`, the known-names block when there are names, the scene
+  block, the `[Picture requests]` block of 18.3 when it applies, `Image prompt:`.
+- System prompt: the sentence about the reference material becomes
+  `The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place.`
+  Every other character of the system prompt stays.
+- The headings of the scene block stay: message 0 under `[Background, reference only: looks and world]`, the
+  messages before the current one under `[Earlier messages, context only]`, the current one under
+  `[Current moment, depict this]`.
+
+### 23.2 WIRING: `src/prompt/build.js`, HOST: `src/host/chat.js`
+- `describeScene` calls `collectContext` without a count and builds no character block. `requestMessage` (18.5)
+  is `<name>: <text>` of `context.trigger`, not cut, or `''`; the own search for it is removed.
+- `getCharacterNotes` and its helper in `src/host/chat.js` are removed (no caller is left).
+- In parallel mode `replyIndex` is the user's message (the reply does not exist yet), so the context is message
+  0 and that message. Nothing changes there.
+
+### 23.3 Settings: `src/settings/defaults.js`, `src/settings/panel.js`
+The setting `contextMessages` is removed: the key, its normalisation, and in the panel the label
+`Kontext-Nachrichten`, the input `#bfqig-context`, the note under it and its handlers. A stored old value is
+dropped by `normalizeSettings` as any unknown key is.
+
+### 23.4 Tests, README, version
+- `tests/prompt`: `collectContext` for the new rules (message 0 not cut at any length; user message plus reply;
+  messages of other characters between trigger and reply are kept; no trigger within the look-back -> only the
+  current message; a trigger exactly at the look-back limit and one message beyond it; the current message is
+  the user's own message; system and empty messages left out; index 0 never in `recent`; long texts not cut;
+  `trigger` returned). `buildLlmRequest` without a character block; the new sentence of the system prompt.
+- Tests of the removed functions (`collectCharacters`, `buildCharacterBlock`, the context count setting) are
+  removed with them; no other test is deleted. Report the count before and after and which tests went.
+- README: the bullet on what the image prompt includes, and any mention of "Kontext-Nachrichten" or the
+  character card.
+- Version `1.10.0` in `package.json`, `package-lock.json` (both places) and `manifest.json`.
+- `npx eslint .` clean, no JS file above 400 lines, `tests/architecture.test.js` green without changes to it.
+
+### 23.5 Live test (orchestrator)
+SillyTavern test instance: the request to the text model carries message 0 in full, the user's message and the
+reply, and no character block; the picture follows.

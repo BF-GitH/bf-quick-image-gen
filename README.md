@@ -8,8 +8,9 @@ image of the current scene has been generated and attached to it, then text and 
 A normal send is never affected. The UI is German.
 
 - Image providers: **NanoGPT** and **OpenRouter** (their dedicated image APIs). Nothing else.
-- The image prompt always includes **message 0** of the chat (character looks, setting) plus the latest N messages,
-  and the description from the **character card**.
+- The image prompt includes **message 0** of the chat (character looks, setting), your message that triggered the
+  reply and the reply itself, each in full (also the messages of other characters between the two). The character
+  card is not part of it.
 - By default the chat model writes the image prompt: a short description of what is to be drawn (at most 45
   words, the most important first); if that fails the extension falls back to a direct prompt. A character from a
   published work is named with its work (`Hermione Granger from Harry Potter`), which is what anime models

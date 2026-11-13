@@ -58,16 +58,16 @@ test('splitShownLine caps the names at NAME_LIMIT', () => {
     assert.equal(splitShownLine(`Shown: ${names.join(', ')}\nx`).names.length, NAME_LIMIT);
 });
 
-test('buildLlmRequest with known names puts them first, then the character block, then the scene', () => {
-    const req = buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', characterBlock: 'CHARS', knownNames: ['Kyouko', 'Yuki'] });
-    assert.equal(req.prompt, 'Task: Do it\n\n[Known names, for spelling only]\nKyouko, Yuki\n\nCHARS\n\nSCENE\n\nImage prompt:');
-    const noChars = buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', knownNames: ['Kyouko'] });
-    assert.equal(noChars.prompt, 'Task: Do it\n\n[Known names, for spelling only]\nKyouko\n\nSCENE\n\nImage prompt:');
+test('buildLlmRequest with known names puts them first, then the scene', () => {
+    const req = buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', knownNames: ['Kyouko', 'Yuki'] });
+    assert.equal(req.prompt, 'Task: Do it\n\n[Known names, for spelling only]\nKyouko, Yuki\n\nSCENE\n\nImage prompt:');
+    const one = buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', knownNames: ['Kyouko'] });
+    assert.equal(one.prompt, 'Task: Do it\n\n[Known names, for spelling only]\nKyouko\n\nSCENE\n\nImage prompt:');
 });
 
 test('buildLlmRequest without names leaves the names block and its separator out', () => {
-    const expected = 'Task: Do it\n\nCHARS\n\nSCENE\n\nImage prompt:';
-    assert.equal(buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', characterBlock: 'CHARS', knownNames: [] }).prompt, expected);
-    assert.equal(buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', characterBlock: 'CHARS' }).prompt, expected);
-    assert.equal(buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', knownNames: null }).prompt, 'Task: Do it\n\nSCENE\n\nImage prompt:');
+    const expected = 'Task: Do it\n\nSCENE\n\nImage prompt:';
+    assert.equal(buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', knownNames: [] }).prompt, expected);
+    assert.equal(buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE' }).prompt, expected);
+    assert.equal(buildLlmRequest({ instruction: 'Do it', sceneBlock: 'SCENE', knownNames: null }).prompt, expected);
 });

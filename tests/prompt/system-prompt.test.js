@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { buildLlmRequest, buildSystemPrompt, DEFAULT_DESCRIPTION, DESCRIPTION_WORDS } from '../../src/prompt/scene.js';
 import { PICTURE_PROMPT_LIMIT } from '../../src/prompt/pictures.js';
 
-// Section 12.3 verbatim: the defaults must keep reproducing the prompt that was tuned against real chat models.
-const TUNED_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The character notes and the background information are a reference for what the characters and the world look like: take appearance details from them, never depict their events, and use their location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. Line 2: one short description in plain English, at most 45 words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light. Refer to each person by the name from line 1; for a character from a published work (anime, game, book, film, series) write the full canonical name and the title of the work instead at the first mention, for example "Hermione Granger from Harry Potter". Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen. No dialogue, no explanations. Output only these two lines.';
+// Section 12.3 with the reference sentence of 23.1: the defaults must keep reproducing the tuned prompt.
+const TUNED_PROMPT = 'You write prompts for an AI image generator. Do not continue the story and do not answer in character. Describe only what is visible in the current moment, with most weight on the last message. If the current moment does not say where it takes place or who is present, take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Answer in exactly two lines. Line 1: the word "Shown:" followed by the names of the people who are visible in this picture and nobody else, separated by commas, the most important first. The list of known names only fixes the spelling: when a visible person is on it, copy the name from the list, otherwise write the name the chat uses. Most people on that list are usually not in the picture. Line 2: one short description in plain English, at most 45 words. Start with how many people are in the picture, for example "One girl, solo:" or "One girl and one boy:". Then, in this order: who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light. Refer to each person by the name from line 1; for a character from a published work (anime, game, book, film, series) write the full canonical name and the title of the work instead at the first mention, for example "Hermione Granger from Harry Potter". Many image generators ignore everything after about 50 words, so the most important things come first and nothing is mentioned that cannot be seen. No dialogue, no explanations. Output only these two lines.';
 
 const SHORT_LINE = (n) => `Line 2: one short description in plain English, at most ${n} words.`;
 const LONG_LINE = (n) => `Line 2: one description in plain English, at most ${n} words.`;
@@ -14,6 +14,12 @@ const LONG_WEIGHT = ' Harry Potter". The most important things come first and no
 test('DEFAULT_DESCRIPTION and DESCRIPTION_WORDS have the spec values', () => {
     assert.equal(DEFAULT_DESCRIPTION, 'who is shown, their hair and eyes, what they wear in this moment, what they are doing and their expression, the place, the light');
     assert.deepEqual({ ...DESCRIPTION_WORDS }, { min: 20, max: 200, fallback: 45 });
+});
+
+test('the reference sentence names only the background information (23.1)', () => {
+    const prompt = buildSystemPrompt();
+    assert.ok(prompt.includes(' take that from the earlier messages. The background information is a reference for what the characters and the world look like: take appearance details from it, never depict its events, and use its location only when the messages give no other place. Answer in exactly two lines.'));
+    assert.ok(!/character notes/i.test(prompt));
 });
 
 test('buildSystemPrompt with defaults gives the tuned 12.3 text exactly', () => {
@@ -111,7 +117,7 @@ test('buildLlmRequest: maxPrompts reaches the system prompt; the picture request
 });
 
 test('buildLlmRequest: no block without maxPrompts above 1 or with an empty request message', () => {
-    const plain = buildLlmRequest({ instruction: 'x', sceneBlock: 'scene', knownNames: ['Anna'], characterBlock: 'chars' });
+    const plain = buildLlmRequest({ instruction: 'x', sceneBlock: 'scene', knownNames: ['Anna'] });
     const cases = [
         { maxPrompts: 1, requestMessage: 'Anna: two pictures' },
         { requestMessage: 'Anna: two pictures' },
@@ -120,7 +126,7 @@ test('buildLlmRequest: no block without maxPrompts above 1 or with an empty requ
         { maxPrompts: 8 },
     ];
     for (const extra of cases) {
-        const req = buildLlmRequest({ instruction: 'x', sceneBlock: 'scene', knownNames: ['Anna'], characterBlock: 'chars', ...extra });
+        const req = buildLlmRequest({ instruction: 'x', sceneBlock: 'scene', knownNames: ['Anna'], ...extra });
         assert.equal(req.prompt, plain.prompt, JSON.stringify(extra));
     }
 });

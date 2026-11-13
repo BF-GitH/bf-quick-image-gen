@@ -5,9 +5,6 @@ import { DEFAULT_DESCRIPTION, DEFAULT_INSTRUCTION, DESCRIPTION_WORDS, LEGACY_DEF
 import { GALLERY_LIMIT } from '../gallery/records.js';
 import { REFERENCE_LIMIT, normalizeNames } from '../references/select.js';
 
-const CONTEXT_MIN = 1;
-const CONTEXT_MAX = 20;
-
 export const DEFAULT_SETTINGS = Object.freeze({
     provider: 'nanogpt',
     keys: Object.freeze({ nanogpt: '', openrouter: '' }),
@@ -21,7 +18,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
     descriptionWords: DESCRIPTION_WORDS.fallback,
     aspect: '1:1',
     quality: 'standard',
-    contextMessages: 4,
     styleSuffix: '',
     useLlm: true,
     autoSaveDialog: false,
@@ -49,12 +45,6 @@ function oneOf(value, allowed, fallback) {
 
 function toBool(value, fallback) {
     return typeof value === 'boolean' ? value : fallback;
-}
-
-function toContextCount(value) {
-    const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
-    if (typeof number !== 'number' || !Number.isFinite(number)) return DEFAULT_SETTINGS.contextMessages;
-    return Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, Math.trunc(number)));
 }
 
 function toDescriptionWords(value) {
@@ -133,7 +123,6 @@ export function normalizeSettings(saved) {
         descriptionWords: toDescriptionWords(src.descriptionWords),
         aspect: oneOf(src.aspect, ASPECT_IDS, DEFAULT_SETTINGS.aspect),
         quality: oneOf(src.quality, QUALITY_IDS, DEFAULT_SETTINGS.quality),
-        contextMessages: toContextCount(src.contextMessages),
         styleSuffix: toStr(src.styleSuffix),
         useLlm: toBool(src.useLlm, DEFAULT_SETTINGS.useLlm),
         autoSaveDialog: toBool(src.autoSaveDialog, DEFAULT_SETTINGS.autoSaveDialog),

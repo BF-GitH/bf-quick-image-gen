@@ -78,9 +78,6 @@ const MARKUP = `
         <select id="bfqig-aspect" class="text_pole"></select>
         <label class="bfqig-label" for="bfqig-quality">Qualität</label>
         <select id="bfqig-quality" class="text_pole"></select>
-        <label class="bfqig-label" for="bfqig-context">Kontext-Nachrichten</label>
-        <input id="bfqig-context" type="number" min="1" max="20" step="1" inputmode="numeric" class="text_pole">
-        <div class="bfqig-note">Zusätzlich zur ersten Nachricht des Chats, die immer dabei ist.</div>
         <label class="bfqig-label" for="bfqig-style">Stil-Zusatz</label>
         <input id="bfqig-style" type="text" class="text_pole" placeholder="z. B. anime style, soft lighting">
         <label class="checkbox_label bfqig-check" for="bfqig-use-llm">
@@ -242,7 +239,6 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     const descriptionWords = byId('bfqig-description-words');
     const aspect = byId('bfqig-aspect');
     const quality = byId('bfqig-quality');
-    const context = byId('bfqig-context');
     const style = byId('bfqig-style');
     const useLlm = byId('bfqig-use-llm');
     const parallel = byId('bfqig-parallel');
@@ -259,7 +255,6 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     descriptionWords.value = String(settings.descriptionWords);
     aspect.value = settings.aspect;
     quality.value = settings.quality;
-    context.value = String(settings.contextMessages);
     style.value = settings.styleSuffix;
     useLlm.checked = settings.useLlm;
     parallel.checked = settings.parallelImage;
@@ -304,12 +299,6 @@ export async function mountSettingsPanel({ onTestImage } = {}) {
     quality.addEventListener('change', () => {
         updateSettings({ quality: quality.value });
         picker.update();
-    });
-    context.addEventListener('change', () => {
-        const parsed = Math.round(Number(context.value));
-        const value = Number.isFinite(parsed) ? Math.min(20, Math.max(1, parsed)) : getSettings().contextMessages;
-        context.value = String(value);
-        updateSettings({ contextMessages: value });
     });
     style.addEventListener('input', () => updateSettings({ styleSuffix: style.value }));
     useLlm.addEventListener('change', () => updateSettings({ useLlm: useLlm.checked }));

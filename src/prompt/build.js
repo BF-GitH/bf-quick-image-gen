@@ -2,14 +2,12 @@
 // reference pictures for the people in it (selection logic lives in references/select.js).
 
 import { LOG_PREFIX } from '../shared/constants.js';
-import { getChatLength, getMessageSnapshot, getCharacterNotes, getParticipantNames } from '../host/chat.js';
+import { getChatLength, getMessageSnapshot, getParticipantNames } from '../host/chat.js';
 import { substituteMacros } from '../host/st.js';
 import { generateText } from '../host/llm.js';
 import { toJpegDataUrl } from '../host/images.js';
 import {
     collectContext,
-    collectCharacters,
-    buildCharacterBlock,
     buildSceneBlock,
     buildLlmRequest,
     buildDirectPrompt,
@@ -18,9 +16,6 @@ import {
     fitContext,
     finalizePrompt,
     splitShownLine,
-    cleanMessageText,
-    truncateText,
-    LIMITS,
     POV_SENTENCE,
     USER_SHOWN_SENTENCE,
 } from './scene.js';
@@ -40,29 +35,13 @@ export const IMAGE_PROMPT_MIN_TOKENS = 2000;
 const EMPTY_ANSWER = 'leere Antwort';
 // Each further picture description needs room in the reply on top of the one description of today.
 const TOKENS_PER_EXTRA_PROMPT = 300;
-const REQUEST_LOOKBACK = 10;
-
-function buildCharacterBlockFromChat(userName) {
-    const notes = getCharacterNotes().map((note) => ({ ...note, description: substituteMacros(note.description) }));
-    return buildCharacterBlock({ characters: collectCharacters(notes), userName });
-}
-
-// The owner writes the picture wishes into the own message, so the latest one of the user carries them.
-function findRequestMessage(lastIndex) {
-    for (let index = lastIndex; index >= 0 && index > lastIndex - REQUEST_LOOKBACK; index--) {
-        const snapshot = getMessageSnapshot(index);
-        if (snapshot?.isUser) return `${snapshot.name}: ${truncateText(cleanMessageText(snapshot.text), LIMITS.messageChars)}`;
-    }
-    return '';
-}
 
 // -> { descriptions, names } with names = null when the answer carried no "Shown:" line.
-async function askChatModel({ instruction, sceneBlock, userName, known, settings, maxPrompts, requestMessage, textModel, signal }) {
+async function askChatModel({ instruction, sceneBlock, known, settings, maxPrompts, requestMessage, textModel, signal }) {
     try {
         const request = buildLlmRequest({
             instruction,
             sceneBlock,
-            characterBlock: buildCharacterBlockFromChat(userName),
             knownNames: known,
             description: settings.description,
             maxWords: settings.descriptionWords,
@@ -121,7 +100,6 @@ export async function describeScene({ lastIndex, settings, candidates = [], maxP
     const context = collectContext({
         chatLength: getChatLength(),
         replyIndex: lastIndex,
-        recentCount: settings.contextMessages,
         getSnapshot: getMessageSnapshot,
     });
     const sceneBlock = buildSceneBlock(context);
@@ -132,9 +110,10 @@ export async function describeScene({ lastIndex, settings, candidates = [], maxP
     // Why the chat model gave no description; the caller tells the owner, who otherwise only sees a worse picture.
     let llmProblem = null;
     if (settings.useLlm) {
-        const requestMessage = prompts > 1 ? findRequestMessage(lastIndex) : '';
+        // The owner writes the picture wishes into the own message, so the triggering message carries them.
+        const requestMessage = prompts > 1 && context.trigger ? `${context.trigger.name}: ${context.trigger.text}` : '';
         ({ descriptions, names: reported, problem: llmProblem } = await askChatModel({
-            instruction, sceneBlock, userName, known, settings, maxPrompts: prompts, requestMessage, textModel, signal,
+            instruction, sceneBlock, known, settings, maxPrompts: prompts, requestMessage, textModel, signal,
         }));
     }
     const usedLlm = descriptions.length > 0;

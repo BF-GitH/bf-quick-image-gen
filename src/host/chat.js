@@ -63,32 +63,6 @@ export function getParticipantNames() {
     return { user: String(ctx.name1 ?? ''), character: String(ctx.name2 ?? '') };
 }
 
-function toCharacterNote(character) {
-    if (!character || typeof character !== 'object' || !character.name) return null;
-    return {
-        name: String(character.name),
-        description: String(character.description ?? character.data?.description ?? ''),
-    };
-}
-
-// Raw card text: cleaning and macro substitution happen in the prompt layers above.
-export function getCharacterNotes() {
-    const ctx = getContext();
-    const characters = Array.isArray(ctx.characters) ? ctx.characters : [];
-    let found = [];
-    if (ctx.groupId) {
-        const group = ctx.groups?.find?.(g => String(g.id) === String(ctx.groupId));
-        const members = Array.isArray(group?.members) ? group.members : [];
-        const disabled = Array.isArray(group?.disabled_members) ? group.disabled_members : [];
-        found = members
-            .filter(avatar => !disabled.includes(avatar))
-            .map(avatar => characters.find(c => c?.avatar === avatar));
-    } else if (ctx.characterId !== undefined && ctx.characterId !== null) {
-        found = [ctx.characters?.[ctx.characterId]];
-    }
-    return found.map(toCharacterNote).filter(Boolean);
-}
-
 export function getImageFolderName() {
     const ctx = getContext();
     if (ctx.groupId) {

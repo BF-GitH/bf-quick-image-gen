@@ -10,7 +10,7 @@ const EXPECTED_DEFAULTS = {
     provider: 'nanogpt', keys: { nanogpt: '', openrouter: '' }, models: { ...DEFAULT_MODELS },
     favorites: { nanogpt: [], openrouter: [] }, instruction: DEFAULT_INSTRUCTION, description: DEFAULT_DESCRIPTION,
     descriptionWords: 45, aspect: '1:1', quality: 'standard',
-    contextMessages: 4, styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
+    styleSuffix: '', useLlm: true, autoSaveDialog: false, parallelImage: false, gallery: [],
     references: [], referenceOrder: {},
     batch: { nanogpt: [], openrouter: [] },
     textModels: { nanogpt: '', openrouter: '' },
@@ -45,7 +45,7 @@ test('normalizeSettings keeps valid values', () => {
     const saved = {
         provider: 'openrouter', keys: { nanogpt: 'a', openrouter: 'b' }, models: { nanogpt: 'x', openrouter: 'y' },
         favorites: { nanogpt: ['x'], openrouter: ['y', 'z'] }, instruction: 'Malen', description: 'the mood', descriptionWords: 90,
-        aspect: '16:9', quality: 'high', contextMessages: 12, styleSuffix: 'anime', useLlm: false, autoSaveDialog: true, parallelImage: true,
+        aspect: '16:9', quality: 'high', styleSuffix: 'anime', useLlm: false, autoSaveDialog: true, parallelImage: true,
         gallery: [{ url: 'user/images/a.png', prompt: 'p' }],
         references: [{ url: 'user/images/bfqig-references/r.jpg', names: ['Kyouko'], enabled: false, timestamp: 5 }],
         referenceOrder: { kyouko: ['user/images/bfqig-references/r.jpg'] },
@@ -61,7 +61,7 @@ test('normalizeSettings keeps valid values', () => {
 test('normalizeSettings repairs garbage types', () => {
     const result = normalizeSettings({
         provider: 7, keys: 'nope', models: { nanogpt: 5, openrouter: null }, favorites: { nanogpt: 'x', openrouter: [1, 'a'] },
-        instruction: { a: 1 }, aspect: 1, quality: [], contextMessages: 'viele', styleSuffix: 3, useLlm: 'yes',
+        instruction: { a: 1 }, aspect: 1, quality: [], styleSuffix: 3, useLlm: 'yes',
         autoSaveDialog: 1, parallelImage: 'true', gallery: 'list', references: { url: 'x' },
     });
     assert.deepEqual(result, {
@@ -72,11 +72,10 @@ test('normalizeSettings repairs garbage types', () => {
     });
 });
 
-test('normalizeSettings clamps contextMessages to an integer in 1..20', () => {
-    const cases = [[0, 1], [-5, 1], [21, 20], [1e9, 20], [3.7, 3], ['6', 6], [NaN, 4], [Infinity, 4], [null, 4], ['', 4]];
-    for (const [input, expected] of cases) {
-        assert.equal(normalizeSettings({ contextMessages: input }).contextMessages, expected, String(input));
-    }
+test('normalizeSettings drops a stored contextMessages like any unknown key', () => {
+    const result = normalizeSettings({ contextMessages: 12 });
+    assert.ok(!('contextMessages' in result));
+    assert.deepEqual(result, EXPECTED_DEFAULTS);
 });
 
 test('normalizeSettings rejects unknown provider, aspect and quality', () => {

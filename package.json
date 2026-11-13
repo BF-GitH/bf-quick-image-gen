@@ -1,6 +1,6 @@
 {
   "name": "bf-quick-image-gen",
-  "version": "1.9.2",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
   "description": "Slim image generation extension for TauriTavern / SillyTavern: wand-menu send + image, NanoGPT and OpenRouter only.",
